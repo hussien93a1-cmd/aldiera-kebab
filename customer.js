@@ -253,13 +253,17 @@
         createdAtMs: Date.now()
       };
       const doc = await db.collection("orders").add(payload);
-      await db.collection("public_order_status").doc(doc.id).set({
+      try {
+        await db.collection("public_order_status").doc(doc.id).set({
         status: "جديد",
         total: t.total,
         orderType: state.orderType,
         createdAtMs: payload.createdAtMs,
         updatedAtMs: Date.now()
-      });
+        });
+      } catch (statusError) {
+        console.warn("Order status tracking write failed", statusError);
+      }
       state.lastOrderId = doc.id;
       localStorage.setItem("kd_last_order_id", doc.id);
       state.cart = [];

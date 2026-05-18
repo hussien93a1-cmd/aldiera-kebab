@@ -91,7 +91,11 @@ window.KABAB = (() => {
     { id: "e3", categoryId: "extras", name: "صحن مقبلات", description: "", imageUrl: "", order: 3, visible: true, available: true, options: [{ id: "oe3", name: "عادي", price: 1000, cost: 0, available: true }] }
   ];
 
-  const addonsSeed = [];
+  const addonsSeed = [
+    { id: "addon_bread", name: "صمون إضافي", price: 1000, cost: 0, available: true, visible: true, order: 1 },
+    { id: "addon_pickles", name: "صحن مقبلات", price: 1000, cost: 0, available: true, visible: true, order: 2 },
+    { id: "addon_spicy", name: "صوص حار", price: 500, cost: 0, available: true, visible: true, order: 3 }
+  ];
   const customersSeed = [];
 
   const fmt = value => `${Number(value || 0).toLocaleString("ar-IQ")} ${currency}`;

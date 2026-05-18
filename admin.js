@@ -41,11 +41,11 @@
   const state = {
     user: null,
     tab: "dashboard",
-    categories: [],
-    items: [],
-    settings: K.settingsSeed,
+    categories: K.localSync.read()?.categories || K.categoriesSeed,
+    items: K.localSync.read()?.items || K.itemsSeed,
+    settings: K.localSync.read()?.settings || K.settingsSeed,
     orders: [],
-    addons: [],
+    addons: K.addonsSeed,
     customers: [],
     editing: null,
     modal: "",
@@ -60,6 +60,7 @@
     ["orders", "الطلبات"],
     ["categories", "الفئات"],
     ["items", "الأصناف"],
+    ["addons", "الإضافات"],
     ["offers", "العروض"],
     ["settings", "الإعدادات"],
     ["reports", "التقارير"],
@@ -84,6 +85,12 @@
       items: state.items,
       settings: state.settings
     });
+  }
+  function applyMenuSnapshot(collectionName, snap, fallback) {
+    const data = docData(snap);
+    state[collectionName] = data.length ? data : fallback;
+    publishMenuSync();
+    render();
   }
   function playNewOrderSound() {
     if (!audioReady) return;
@@ -151,6 +158,7 @@
     if (state.tab === "orders") return renderOrders();
     if (state.tab === "categories") return renderCategories();
     if (state.tab === "items") return renderItems(false);
+    if (state.tab === "addons") return renderAddons();
     if (state.tab === "offers") return renderItems(true);
     if (state.tab === "settings") return renderSettings();
     if (state.tab === "reports") return renderReports();
@@ -259,6 +267,38 @@
     </div>`;
   }
 
+  function renderAddons() {
+    return `<div class="split">
+      <section class="panel">${addonForm()}</section>
+      <section class="panel"><div class="panel-head"><h3>الإضافات</h3><button class="ghost-btn" data-action="newAddon">تفريغ النموذج</button></div>
+        <div class="data-grid">${K.sortByOrder(state.addons).map(addon => rowCard(`${addon.name} - ${K.fmt(addon.price)}`, `${addon.available === false ? "غير متوفر" : "متوفر"} | ${addon.visible === false ? "مخفي" : "ظاهر"}`, [
+          ["تعديل", `data-edit-addon="${addon.id}"`, ""],
+          [addon.visible === false ? "إظهار" : "إخفاء", `data-toggle-addon="${addon.id}"`, "orange"],
+          ["حذف", `data-delete-addon="${addon.id}"`, "red"]
+        ])).join("") || `<div class="notice">لا توجد إضافات بعد.</div>`}</div>
+      </section>
+    </div>`;
+  }
+
+  function addonForm(addon = state.editing?.type === "addon" ? state.editing.data : {}) {
+    return `<h3>${addon.id ? "تعديل إضافة" : "إضافة جديدة"}</h3><form class="stack" data-form="addon">
+      <input id="addonId" type="hidden" value="${esc(addon.id || "")}">
+      <div class="form-grid">
+        <label>اسم الإضافة<input id="addonName" value="${esc(addon.name || "")}" required></label>
+        <label>السعر<input id="addonPrice" type="number" value="${esc(addon.price || 0)}"></label>
+      </div>
+      <div class="form-grid">
+        <label>التكلفة<input id="addonCost" type="number" value="${esc(addon.cost || 0)}"></label>
+        <label>الترتيب<input id="addonOrder" type="number" value="${esc(addon.order || 1)}"></label>
+      </div>
+      <div class="form-grid">
+        <label><input id="addonAvailable" type="checkbox" ${addon.available !== false ? "checked" : ""}> متوفر</label>
+        <label><input id="addonVisible" type="checkbox" ${addon.visible !== false ? "checked" : ""}> ظاهر</label>
+      </div>
+      <button class="primary-btn" type="submit">حفظ الإضافة</button>
+    </form>`;
+  }
+
   function rowCard(title, subtitle, actions) {
     return `<div class="row-card"><div class="row-head"><div><strong>${esc(title)}</strong><p class="muted">${esc(subtitle || "")}</p></div></div><div class="row-actions">${actions.map(([label, attrs, color]) => `<button class="mini-btn ${color}" ${attrs}>${label}</button>`).join("")}</div></div>`;
   }
@@ -364,6 +404,22 @@
     }
     await optionBatch.commit();
     toast("تم حفظ الصنف.");
+  }
+
+  async function saveAddon() {
+    const id = val("addonId") || K.id("addon");
+    const payload = {
+      name: val("addonName"),
+      price: num("addonPrice"),
+      cost: num("addonCost"),
+      order: num("addonOrder"),
+      available: document.getElementById("addonAvailable")?.checked !== false,
+      visible: document.getElementById("addonVisible")?.checked !== false
+    };
+    state.editing = null;
+    state.addons = state.addons.filter(addon => addon.id !== id).concat({ id, ...payload });
+    await db.collection("addons").doc(id).set(payload, { merge: true });
+    toast("تم حفظ الإضافة.");
   }
 
   async function saveSettings() {
@@ -482,12 +538,19 @@
     if (el.dataset.action === "enableAudio") { audioReady = true; toast("تم تفعيل صوت تنبيه الطلبات."); }
     if (el.dataset.action === "newCategory") { state.editing = null; render(); }
     if (el.dataset.action === "newItem" || el.dataset.action === "newOffer") { state.editing = null; render(); }
+    if (el.dataset.action === "newAddon") { state.editing = null; render(); }
     if (el.dataset.editCategory) { state.editing = { type: "category", data: state.categories.find(c => c.id === el.dataset.editCategory) }; render(); }
     if (el.dataset.toggleCategory) { const c = state.categories.find(x => x.id === el.dataset.toggleCategory); await db.collection("categories").doc(c.id).set({ hidden: !c.hidden }, { merge: true }); }
     if (el.dataset.deleteCategory && confirm("حذف الفئة؟")) await db.collection("categories").doc(el.dataset.deleteCategory).delete();
     if (el.dataset.editItem) { state.editing = { type: "item", data: state.items.find(i => i.id === el.dataset.editItem) }; render(); }
     if (el.dataset.toggleItem) { const i = state.items.find(x => x.id === el.dataset.toggleItem); await db.collection("items").doc(i.id).set({ available: i.available === false }, { merge: true }); }
     if (el.dataset.deleteItem && confirm("حذف الصنف؟")) await db.collection("items").doc(el.dataset.deleteItem).delete();
+    if (el.dataset.editAddon) { state.editing = { type: "addon", data: state.addons.find(addon => addon.id === el.dataset.editAddon) }; render(); }
+    if (el.dataset.toggleAddon) {
+      const addon = state.addons.find(x => x.id === el.dataset.toggleAddon);
+      await db.collection("addons").doc(addon.id).set({ visible: addon.visible === false }, { merge: true });
+    }
+    if (el.dataset.deleteAddon && confirm("حذف الإضافة؟")) await db.collection("addons").doc(el.dataset.deleteAddon).delete();
     if (el.dataset.action === "addOption") document.getElementById("optionsEditor").insertAdjacentHTML("beforeend", optionForm());
     if (el.dataset.removeOption !== undefined) el.closest(".option-editor")?.remove();
     if (el.dataset.archive) await db.collection("orders").doc(el.dataset.archive).set({ archived: true }, { merge: true });
@@ -499,7 +562,14 @@
       await batch.commit();
       toast("تمت الأرشفة.");
     }
-    if (el.dataset.action === "seed" && confirm("رفع البيانات الأولية؟")) { await K.seedFirestore(); toast("تم رفع البيانات الأولية."); }
+    if (el.dataset.action === "seed" && confirm("رفع البيانات الأولية؟")) {
+      state.categories = K.categoriesSeed;
+      state.items = K.itemsSeed;
+      state.settings = K.settingsSeed;
+      publishMenuSync();
+      await K.seedFirestore();
+      toast("تم رفع البيانات الأولية.");
+    }
     if (el.dataset.action === "repairVisibility") await repairVisibility();
     if (el.dataset.action === "downloadBackup") backupData();
     if (el.dataset.action === "restoreBackup") await restoreBackup();
@@ -522,6 +592,7 @@
     try {
       if (form === "category") await saveCategory();
       if (form === "item") await saveItem();
+      if (form === "addon") await saveAddon();
       if (form === "settings") await saveSettings();
     } catch (error) {
       toast(error.message || "حدث خطأ أثناء الحفظ.", "error-notice");
@@ -535,10 +606,17 @@
     }
     state.user = user;
     render();
-    db.collection("categories").onSnapshot(s => { state.categories = docData(s); publishMenuSync(); render(); });
-    db.collection("items").onSnapshot(s => { state.items = docData(s); publishMenuSync(); render(); });
-    db.collection("settings").doc("main").onSnapshot(d => { state.settings = { ...K.settingsSeed, ...(d.exists ? d.data() : {}) }; publishMenuSync(); render(); });
-    db.collection("addons").onSnapshot(s => { state.addons = docData(s); });
+    db.collection("categories").onSnapshot(s => applyMenuSnapshot("categories", s, K.categoriesSeed), () => { state.categories = K.categoriesSeed; publishMenuSync(); render(); });
+    db.collection("items").onSnapshot(s => applyMenuSnapshot("items", s, K.itemsSeed), () => { state.items = K.itemsSeed; publishMenuSync(); render(); });
+    db.collection("settings").doc("main").onSnapshot(d => { state.settings = { ...K.settingsSeed, ...(d.exists ? d.data() : {}) }; publishMenuSync(); render(); }, () => { state.settings = K.settingsSeed; publishMenuSync(); render(); });
+    db.collection("addons").onSnapshot(s => {
+      const addons = docData(s);
+      state.addons = addons.length ? addons : K.addonsSeed;
+      render();
+    }, () => {
+      state.addons = K.addonsSeed;
+      render();
+    });
     db.collection("customers").onSnapshot(s => { state.customers = docData(s); });
     db.collection("orders").orderBy("createdAtMs", "desc").limit(200).onSnapshot(s => {
       const orders = docData(s);
