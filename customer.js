@@ -20,7 +20,9 @@
     lastOrder: null,
     message: "",
     firebaseError: "",
-    isSending: false
+    isSending: false,
+    remoteCategoryCount: 0,
+    remoteItemCount: 0
   };
 
   function read(key, fallback) {
@@ -69,11 +71,11 @@
   }
   function applyMenuPayload(payload) {
     if (!payload) return;
-    if (Array.isArray(payload.categories) && payload.categories.length) {
+    if (Array.isArray(payload.categories)) {
       state.categories = payload.categories;
       localStorage.setItem("kd_cached_categories", JSON.stringify(state.categories));
     }
-    if (Array.isArray(payload.items) && payload.items.length) {
+    if (Array.isArray(payload.items)) {
       state.items = payload.items;
       localStorage.setItem("kd_cached_items", JSON.stringify(state.items));
     }
@@ -294,7 +296,8 @@
     }
     db.collection("categories").onSnapshot(s => {
       const categories = s.docs.map(d => ({ id: d.id, ...d.data() }));
-      state.categories = categories.length ? categories : K.categoriesSeed;
+      state.remoteCategoryCount = categories.length;
+      state.categories = categories.length ? categories : (state.settings.menuCleared ? [] : K.categoriesSeed);
       localStorage.setItem("kd_cached_categories", JSON.stringify(state.categories));
       state.firebaseError = "";
       render();
@@ -304,7 +307,8 @@
     });
     db.collection("items").onSnapshot(s => {
       const items = s.docs.map(d => ({ id: d.id, ...d.data() }));
-      state.items = items.length ? items : K.itemsSeed;
+      state.remoteItemCount = items.length;
+      state.items = items.length ? items : (state.settings.menuCleared ? [] : K.itemsSeed);
       localStorage.setItem("kd_cached_items", JSON.stringify(state.items));
       state.firebaseError = "";
       render();
@@ -314,6 +318,8 @@
     });
     db.collection("settings").doc("main").onSnapshot(d => {
       state.settings = { ...K.settingsSeed, ...(d.exists ? d.data() : {}) };
+      if (state.settings.menuCleared && state.remoteCategoryCount === 0) state.categories = [];
+      if (state.settings.menuCleared && state.remoteItemCount === 0) state.items = [];
       localStorage.setItem("kd_cached_settings", JSON.stringify(state.settings));
       render();
     }, () => {

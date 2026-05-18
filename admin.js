@@ -49,11 +49,23 @@
     customers: [],
     editing: null,
     modal: "",
+    selectedOrderId: "",
+    orderToast: "",
+    alarmMuted: localStorage.getItem("kd_alarm_muted") === "1",
+    alarmSettings: (() => {
+      try {
+        return JSON.parse(localStorage.getItem("kd_alarm_settings")) || { sound: "urgent", volume: 0.9, browserNotifications: false };
+      } catch (error) {
+        return { sound: "urgent", volume: 0.9, browserNotifications: false };
+      }
+    })(),
     dateFrom: "",
     dateTo: ""
   };
   let lastNewOrderIds = new Set();
   let audioReady = false;
+  let alarmCtx = null;
+  let alarmTimer = null;
 
   const tabs = [
     ["dashboard", "الرئيسية"],
@@ -88,21 +100,92 @@
   }
   function applyMenuSnapshot(collectionName, snap, fallback) {
     const data = docData(snap);
-    state[collectionName] = data.length ? data : fallback;
+    state[collectionName] = data.length ? data : (state.settings.menuCleared ? [] : fallback);
     publishMenuSync();
     render();
   }
-  function playNewOrderSound() {
-    if (!audioReady) return;
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = 880;
-    gain.gain.value = .08;
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    setTimeout(() => { osc.stop(); ctx.close(); }, 420);
+  function isNewOrder(order) {
+    return ["new", "جديد"].includes(order.status || "جديد") && !order.archived;
+  }
+  function pendingNewOrders() {
+    return state.orders.filter(isNewOrder);
+  }
+  function alarmPattern() {
+    const patterns = {
+      urgent: [920, 1180, 920, 1380],
+      classic: [740, 740, 980],
+      soft: [520, 660, 780]
+    };
+    return patterns[state.alarmSettings.sound] || patterns.urgent;
+  }
+  function saveAlarmSettings() {
+    localStorage.setItem("kd_alarm_settings", JSON.stringify(state.alarmSettings));
+    localStorage.setItem("kd_alarm_muted", state.alarmMuted ? "1" : "0");
+  }
+  function beepOnce() {
+    if (!audioReady || state.alarmMuted) return;
+    alarmCtx = alarmCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const now = alarmCtx.currentTime;
+    alarmPattern().forEach((freq, index) => {
+      const osc = alarmCtx.createOscillator();
+      const gain = alarmCtx.createGain();
+      osc.type = "square";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + index * 0.18);
+      gain.gain.exponentialRampToValueAtTime(Number(state.alarmSettings.volume || 0.9), now + index * 0.18 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.18 + 0.13);
+      osc.connect(gain);
+      gain.connect(alarmCtx.destination);
+      osc.start(now + index * 0.18);
+      osc.stop(now + index * 0.18 + 0.14);
+    });
+  }
+  function startOrderAlarm() {
+    if (!pendingNewOrders().length || state.alarmMuted) return;
+    if (!audioReady) {
+      state.orderToast = "المتصفح يحتاج تفعيل صوت التنبيهات مرة واحدة.";
+      render();
+      return;
+    }
+    if (alarmTimer) return;
+    beepOnce();
+    alarmTimer = setInterval(beepOnce, 1250);
+  }
+  function stopOrderAlarm(force = false) {
+    if (alarmTimer) {
+      clearInterval(alarmTimer);
+      alarmTimer = null;
+    }
+    if (force) state.alarmMuted = true;
+    saveAlarmSettings();
+  }
+  function enableOrderAudio() {
+    audioReady = true;
+    state.alarmMuted = false;
+    saveAlarmSettings();
+    beepOnce();
+    checkPendingOrders();
+  }
+  function testOrderAlarm() {
+    audioReady = true;
+    state.alarmMuted = false;
+    saveAlarmSettings();
+    beepOnce();
+  }
+  function notifyNewOrder(order) {
+    state.orderToast = `طلب جديد #${order.id.slice(0, 6)} من ${order.customer?.name || "زبون"}`;
+    if (state.alarmSettings.browserNotifications && "Notification" in window && Notification.permission === "granted") {
+      new Notification("طلب جديد - كباب الديرة", {
+        body: `${order.customer?.name || "زبون"} - ${K.fmt(order.total)}`,
+        tag: order.id
+      });
+    }
+  }
+  function checkPendingOrders(newOrders = []) {
+    if (newOrders.length) notifyNewOrder(newOrders[0]);
+    if (pendingNewOrders().length) startOrderAlarm();
+    else stopOrderAlarm();
+    render();
   }
   function orderTime(order) {
     if (order.createdAt?.toDate) return order.createdAt.toDate();
@@ -118,7 +201,7 @@
   }
   function metrics(list = filteredOrders()) {
     const done = list.filter(o => o.status === "تم التسليم");
-    const canceled = list.filter(o => o.status === "ملغي");
+    const canceled = list.filter(o => o.status === "ملغي" || o.status === "مرفوض");
     const itemMap = {};
     list.forEach(order => (order.items || []).forEach(item => {
       itemMap[item.name] = (itemMap[item.name] || 0) + Number(item.quantity || 0);
@@ -146,10 +229,11 @@
       </aside>
       <section class="admin-main">
         <div class="admin-top"><h2>${tabs.find(t => t[0] === state.tab)?.[1] || ""}</h2><a class="ghost-btn" href="index.html">صفحة الزبون</a></div>
+        ${state.orderToast ? `<div class="order-toast"><strong>${esc(state.orderToast)}</strong><button class="mini-btn" data-action="clearOrderToast">إغلاق</button></div>` : ""}
         ${state.modal}
         ${renderTab()}
       </section>
-      <div id="adminModal" class="modal"></div>
+      ${renderOrderDetailsModal()}
     `;
   }
 
@@ -182,10 +266,70 @@
 
   function renderOrders() {
     const live = state.orders.filter(o => !o.archived);
-    return `<section class="panel">
-      <div class="panel-head"><h3>الطلبات المباشرة</h3><div class="row-actions"><button class="ghost-btn" data-action="archiveDone">أرشفة المكتملة</button></div></div>
-      ${ordersTable(live)}
+    const pending = pendingNewOrders().length;
+    return `<section class="panel order-control-panel">
+      <div class="panel-head">
+        <div><h3>الطلبات الواردة</h3><p class="muted">طلبات صفحة الزبون تظهر هنا مباشرة</p></div>
+        <div class="row-actions">
+          <button class="primary-btn ${pending ? "pulse-alert" : ""}" data-action="enableOrderAudio">تفعيل صوت التنبيهات ${pending ? `<span class="new-count">${pending}</span>` : ""}</button>
+          <button class="warning-btn" data-action="stopAlarm">إيقاف الصوت مؤقتًا</button>
+          <button class="ghost-btn" data-action="requestNotifications">تفعيل إشعارات المتصفح</button>
+          <button class="ghost-btn" data-action="archiveDone">أرشفة المكتملة</button>
+        </div>
+      </div>
+      <div class="alarm-settings">
+        <label>صوت التنبيه<select data-alarm-setting="sound">
+          <option value="urgent" ${state.alarmSettings.sound === "urgent" ? "selected" : ""}>قوي وصاخب</option>
+          <option value="classic" ${state.alarmSettings.sound === "classic" ? "selected" : ""}>كلاسيكي</option>
+          <option value="soft" ${state.alarmSettings.sound === "soft" ? "selected" : ""}>هادئ</option>
+        </select></label>
+        <label>مستوى الصوت<input type="range" min="0.1" max="1" step="0.1" value="${esc(state.alarmSettings.volume)}" data-alarm-setting="volume"></label>
+        <button class="ghost-btn" data-action="testAlarm">اختبار الصوت</button>
+      </div>
+      ${renderOrderCards(live)}
     </section>`;
+  }
+
+  function statusClass(status = "جديد") {
+    if (["new", "جديد"].includes(status)) return "new";
+    if (status === "مقبول") return "accepted";
+    if (status === "قيد التحضير") return "preparing";
+    if (status === "جاهز" || status === "تم التسليم") return "ready";
+    if (status === "مرفوض" || status === "ملغي") return "canceled";
+    return "neutral";
+  }
+
+  function orderTypeLabel(type) {
+    return { delivery: "دليفري", takeaway: "سفري", dinein: "صالة" }[type] || type || "غير محدد";
+  }
+
+  function renderOrderCards(orders) {
+    if (!orders.length) return `<div class="notice">لا توجد طلبات واردة حاليًا.</div>`;
+    return `<div class="order-card-grid">${orders.map(order => {
+      const itemCount = (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+      const status = order.status || "جديد";
+      return `<article class="order-card status-${statusClass(status)} ${isNewOrder(order) ? "is-new-order" : ""}" data-order-open="${order.id}">
+        <div class="order-card-head">
+          <div><strong>#${esc(order.id.slice(0, 8))}</strong><span class="status-chip">${esc(status)}</span></div>
+          ${isNewOrder(order) ? `<span class="new-badge">طلب جديد</span>` : ""}
+        </div>
+        <div class="order-meta">
+          <span>${orderTime(order).toLocaleString("ar-IQ")}</span>
+          <span>${esc(orderTypeLabel(order.orderType))}</span>
+          <span>المصدر: صفحة الزبون</span>
+        </div>
+        <h3>${esc(order.customer?.name || "زبون")}</h3>
+        <p class="muted">${esc(order.customer?.phone || "")}</p>
+        <p class="muted">${esc(order.customer?.address || order.tableNumber || "لا يوجد عنوان")}</p>
+        <div class="order-summary-line"><span>${itemCount} صنف</span><strong>${K.fmt(order.total)}</strong></div>
+        ${order.notes ? `<p class="order-note">${esc(order.notes)}</p>` : ""}
+        <div class="row-actions">
+          <button class="mini-btn green" data-accept-order="${order.id}">قبول</button>
+          <button class="mini-btn red" data-reject-order="${order.id}">رفض</button>
+          <button class="mini-btn" data-order-open="${order.id}">التفاصيل</button>
+        </div>
+      </article>`;
+    }).join("")}</div>`;
   }
 
   function ordersTable(orders) {
@@ -200,6 +344,65 @@
         <td><div class="row-actions"><button class="mini-btn green" data-print="${order.id}">طباعة</button><button class="mini-btn" data-archive="${order.id}">أرشفة</button><button class="mini-btn red" data-delete-order="${order.id}">حذف</button></div></td>
       </tr>`).join("") || `<tr><td colspan="6">لا توجد طلبات.</td></tr>`}</tbody>
     </table></div>`;
+  }
+
+  function selectedOrder() {
+    return state.orders.find(order => order.id === state.selectedOrderId);
+  }
+
+  function orderMapsUrl(order) {
+    return order.customer?.mapsUrl || (order.customer?.lat && order.customer?.lng ? `https://maps.google.com/?q=${order.customer.lat},${order.customer.lng}` : "");
+  }
+
+  function renderOrderDetailsModal() {
+    const order = selectedOrder();
+    if (!order) return `<div id="adminModal" class="modal"></div>`;
+    const mapsUrl = orderMapsUrl(order);
+    const status = order.status || "جديد";
+    return `<div id="adminModal" class="modal open">
+      <section class="modal-card order-details-modal">
+        <div class="panel-head">
+          <div><h2>تفاصيل الطلب #${esc(order.id.slice(0, 8))}</h2><p class="muted">${orderTime(order).toLocaleString("ar-IQ")} - ${esc(orderTypeLabel(order.orderType))}</p></div>
+          <button class="ghost-btn" data-action="closeOrderModal">إغلاق</button>
+        </div>
+        <div class="order-detail-grid">
+          <div class="panel stack">
+            <h3>معلومات الزبون</h3>
+            <p><strong>الاسم:</strong> ${esc(order.customer?.name || "")}</p>
+            <p><strong>الهاتف:</strong> ${esc(order.customer?.phone || "")}</p>
+            <p><strong>العنوان:</strong> ${esc(order.customer?.address || order.tableNumber || "")}</p>
+            <p><strong>الملاحظات:</strong> ${esc(order.notes || "لا توجد")}</p>
+            <p><strong>الدفع:</strong> ${esc(order.paymentStatus || "غير محدد")}</p>
+            <p><strong>المصدر:</strong> صفحة الزبون</p>
+          </div>
+          <div class="panel stack">
+            <h3>الحالة والإجمالي</h3>
+            <span class="status-chip">${esc(status)}</span>
+            <p><strong>مجموع الطلب:</strong> ${K.fmt(order.subtotal)}</p>
+            <p><strong>التوصيل:</strong> ${K.fmt(order.deliveryFee)}</p>
+            <p><strong>الخصم:</strong> ${K.fmt(order.discount || 0)}</p>
+            <p><strong>الإجمالي النهائي:</strong> ${K.fmt(order.total)}</p>
+            <label>تغيير الحالة<select data-status="${order.id}">${K.orderStatuses.map(s => `<option ${s === status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>الأصناف</h3>
+          <div class="order-lines">${(order.items || []).map(item => `<div class="order-line">
+            <div><strong>${esc(item.name)}</strong><p class="muted">${esc(item.optionName || "")}${item.addons ? ` - إضافات: ${esc(item.addons)}` : ""}</p>${item.notes ? `<p class="muted">ملاحظة: ${esc(item.notes)}</p>` : ""}</div>
+            <span>×${esc(item.quantity || 1)}</span>
+            <strong>${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}</strong>
+          </div>`).join("")}</div>
+        </div>
+        <div class="row-actions order-modal-actions">
+          <button class="success-btn" data-accept-order="${order.id}">قبول الطلب</button>
+          <button class="danger-btn" data-reject-order="${order.id}">رفض الطلب</button>
+          <button class="ghost-btn" data-print-kitchen="${order.id}">طباعة طلب مطبخ</button>
+          <button class="ghost-btn" data-print-invoice="${order.id}">طباعة فاتورة زبون</button>
+          ${mapsUrl ? `<a class="ghost-btn" href="${esc(mapsUrl)}" target="_blank">فتح الموقع</a>` : ""}
+          ${order.customer?.phone ? `<a class="ghost-btn" href="tel:${esc(order.customer.phone)}">اتصال</a><a class="success-btn" target="_blank" href="https://wa.me/${esc(String(order.customer.phone).replace(/\\D/g, ""))}">واتساب</a>` : ""}
+        </div>
+      </section>
+    </div>`;
   }
 
   function renderCategories() {
@@ -327,6 +530,8 @@
   function renderBackup() {
     return `<section class="panel stack">
       <div class="row-actions"><button class="primary-btn" data-action="seed">رفع البيانات الأولية إلى Firebase</button><button class="ghost-btn" data-action="downloadBackup">تحميل البيانات الحالية JSON</button></div>
+      <div class="notice error-notice"><strong>تنبيه:</strong> زر حذف المنيو يمسح الفئات والأصناف والخيارات والعروض والإضافات فقط، ولا يحذف الطلبات.</div>
+      <button class="danger-btn" data-action="clearMenuData">حذف الفئات والأصناف القديمة والبدء من الصفر</button>
       <label>استيراد JSON<textarea id="backupJson" class="json-box" placeholder='{"categories":[],"items":[]}'></textarea></label>
       <button class="warning-btn" data-action="restoreBackup">استعادة النسخة</button>
     </section>`;
@@ -348,8 +553,10 @@
     };
     state.editing = null;
     state.categories = state.categories.filter(category => category.id !== id).concat({ id, ...payload });
+    state.settings = { ...state.settings, menuCleared: false };
     publishMenuSync();
     await db.collection("categories").doc(id).set(payload, { merge: true });
+    await db.collection("settings").doc("main").set({ menuCleared: false }, { merge: true });
     toast("تم حفظ الفئة.");
   }
 
@@ -387,8 +594,10 @@
     };
     state.editing = null;
     state.items = state.items.filter(item => item.id !== id).concat({ id, ...payload });
+    state.settings = { ...state.settings, menuCleared: false };
     publishMenuSync();
     await db.collection("items").doc(id).set(payload, { merge: true });
+    await db.collection("settings").doc("main").set({ menuCleared: false }, { merge: true });
     const optionBatch = db.batch();
     options.forEach(option => optionBatch.set(db.collection("item_options").doc(`${id}_${option.id}`), { ...option, itemId: id }, { merge: true }));
     if (isOffer) {
@@ -493,6 +702,27 @@
     await batch.commit();
     toast("تمت استعادة النسخة.");
   }
+  async function clearMenuData() {
+    const collections = ["categories", "items", "item_options", "offers", "addons"];
+    for (const collectionName of collections) {
+      const snap = await db.collection(collectionName).get();
+      const batch = db.batch();
+      snap.docs.forEach(doc => batch.delete(doc.ref));
+      if (snap.docs.length) await batch.commit();
+    }
+    state.categories = [];
+    state.items = [];
+    state.addons = [];
+    state.editing = null;
+    state.settings = { ...state.settings, menuCleared: true };
+    localStorage.setItem("kd_cached_categories", JSON.stringify([]));
+    localStorage.setItem("kd_cached_items", JSON.stringify([]));
+    localStorage.setItem("kd_cached_settings", JSON.stringify(state.settings));
+    await db.collection("settings").doc("main").set({ menuCleared: true }, { merge: true });
+    publishMenuSync();
+    render();
+    toast("تم حذف المنيو القديم. يمكنك الآن إضافة الفئات والأصناف من لوحة التحكم.");
+  }
   async function repairVisibility() {
     const batch = db.batch();
     state.categories.forEach(category => {
@@ -506,6 +736,53 @@
     });
     await batch.commit();
     toast("تم إظهار الفئات والأصناف.");
+  }
+  function openOrderDetails(orderId) {
+    state.selectedOrderId = orderId;
+    render();
+  }
+  async function updateOrderStatus(orderId, status) {
+    await db.collection("orders").doc(orderId).set({ status, source: "customer-menu", updatedAtMs: Date.now() }, { merge: true });
+    await db.collection("public_order_status").doc(orderId).set({ status, updatedAtMs: Date.now() }, { merge: true });
+    if (!pendingNewOrders().filter(order => order.id !== orderId).length) stopOrderAlarm();
+    state.orders = state.orders.map(order => order.id === orderId ? { ...order, status } : order);
+    render();
+  }
+  async function acceptOrder(orderId) {
+    await updateOrderStatus(orderId, "مقبول");
+    toast("تم قبول الطلب.");
+  }
+  async function rejectOrder(orderId) {
+    await updateOrderStatus(orderId, "مرفوض");
+    toast("تم رفض الطلب.", "error-notice");
+  }
+  function printKitchenOrder(orderId) {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+    printOrderDocument(order, "kitchen");
+  }
+  function printCustomerInvoice(orderId) {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+    printOrderDocument(order, "invoice");
+  }
+  function printOrderDocument(order, type) {
+    const prices = type === "invoice";
+    const area = document.createElement("div");
+    area.id = "printArea";
+    area.className = "thermal-print";
+    area.innerHTML = `<h1>${prices ? esc(state.settings.restaurantName || "كباب الديرة") : "طلب مطبخ"}</h1>
+      <h2>#${esc(order.id.slice(0, 8))}</h2>
+      <p>${orderTime(order).toLocaleString("ar-IQ")}</p>
+      <p>${esc(orderTypeLabel(order.orderType))}</p>
+      ${prices ? `<p>${esc(order.customer?.name || "")} - ${esc(order.customer?.phone || "")}</p><p>${esc(order.customer?.address || "")}</p>` : ""}
+      <hr>
+      ${(order.items || []).map(item => `<div class="print-line"><span>${esc(item.name)} / ${esc(item.optionName || "")} × ${esc(item.quantity || 1)}</span>${prices ? `<strong>${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}</strong>` : ""}</div>${item.notes ? `<p>ملاحظة: ${esc(item.notes)}</p>` : ""}`).join("")}
+      ${prices ? `<hr><p>التوصيل: ${K.fmt(order.deliveryFee)}</p><h2>الإجمالي: ${K.fmt(order.total)}</h2><p>شكرًا لاختياركم كباب الديرة</p>` : ""}
+    `;
+    document.body.appendChild(area);
+    window.print();
+    area.remove();
   }
   function exportReport(type) {
     const list = filteredOrders();
@@ -531,11 +808,22 @@
   }
 
   app.addEventListener("click", async event => {
-    const el = event.target.closest("[data-tab],[data-action],[data-edit-category],[data-toggle-category],[data-delete-category],[data-edit-item],[data-toggle-item],[data-delete-item],[data-archive],[data-delete-order],[data-print],[data-export],[data-remove-option]");
+    const el = event.target.closest("[data-tab],[data-action],[data-edit-category],[data-toggle-category],[data-delete-category],[data-edit-item],[data-toggle-item],[data-delete-item],[data-edit-addon],[data-toggle-addon],[data-delete-addon],[data-archive],[data-delete-order],[data-print],[data-print-kitchen],[data-print-invoice],[data-order-open],[data-accept-order],[data-reject-order],[data-export],[data-remove-option]");
     if (!el) return;
     if (el.dataset.tab) { state.tab = el.dataset.tab; state.editing = null; render(); }
     if (el.dataset.action === "logout") await services.auth.signOut();
     if (el.dataset.action === "enableAudio") { audioReady = true; toast("تم تفعيل صوت تنبيه الطلبات."); }
+    if (el.dataset.action === "enableOrderAudio") { enableOrderAudio(); toast("تم تفعيل صوت الطلبات."); }
+    if (el.dataset.action === "stopAlarm") { stopOrderAlarm(true); toast("تم إيقاف الصوت مؤقتًا."); }
+    if (el.dataset.action === "testAlarm") testOrderAlarm();
+    if (el.dataset.action === "clearOrderToast") { state.orderToast = ""; render(); }
+    if (el.dataset.action === "closeOrderModal") { state.selectedOrderId = ""; render(); }
+    if (el.dataset.action === "requestNotifications" && "Notification" in window) {
+      const permission = await Notification.requestPermission();
+      state.alarmSettings.browserNotifications = permission === "granted";
+      saveAlarmSettings();
+      toast(permission === "granted" ? "تم تفعيل إشعارات المتصفح." : "لم يتم تفعيل إشعارات المتصفح.", permission === "granted" ? "success-notice" : "error-notice");
+    }
     if (el.dataset.action === "newCategory") { state.editing = null; render(); }
     if (el.dataset.action === "newItem" || el.dataset.action === "newOffer") { state.editing = null; render(); }
     if (el.dataset.action === "newAddon") { state.editing = null; render(); }
@@ -553,9 +841,14 @@
     if (el.dataset.deleteAddon && confirm("حذف الإضافة؟")) await db.collection("addons").doc(el.dataset.deleteAddon).delete();
     if (el.dataset.action === "addOption") document.getElementById("optionsEditor").insertAdjacentHTML("beforeend", optionForm());
     if (el.dataset.removeOption !== undefined) el.closest(".option-editor")?.remove();
+    if (el.dataset.orderOpen) openOrderDetails(el.dataset.orderOpen);
+    if (el.dataset.acceptOrder) await acceptOrder(el.dataset.acceptOrder);
+    if (el.dataset.rejectOrder) await rejectOrder(el.dataset.rejectOrder);
+    if (el.dataset.printKitchen) printKitchenOrder(el.dataset.printKitchen);
+    if (el.dataset.printInvoice) printCustomerInvoice(el.dataset.printInvoice);
     if (el.dataset.archive) await db.collection("orders").doc(el.dataset.archive).set({ archived: true }, { merge: true });
     if (el.dataset.deleteOrder && confirm("حذف الطلب؟")) await db.collection("orders").doc(el.dataset.deleteOrder).delete();
-    if (el.dataset.print) printOrder(el.dataset.print);
+    if (el.dataset.print) printCustomerInvoice(el.dataset.print);
     if (el.dataset.action === "archiveDone") {
       const batch = db.batch();
       state.orders.filter(o => o.status === "تم التسليم" || o.status === "ملغي").forEach(o => batch.set(db.collection("orders").doc(o.id), { archived: true }, { merge: true }));
@@ -565,11 +858,12 @@
     if (el.dataset.action === "seed" && confirm("رفع البيانات الأولية؟")) {
       state.categories = K.categoriesSeed;
       state.items = K.itemsSeed;
-      state.settings = K.settingsSeed;
+      state.settings = { ...K.settingsSeed, menuCleared: false };
       publishMenuSync();
       await K.seedFirestore();
       toast("تم رفع البيانات الأولية.");
     }
+    if (el.dataset.action === "clearMenuData" && confirm("هل أنت متأكد؟ سيتم حذف الفئات والأصناف والخيارات والعروض والإضافات فقط، ولن يتم حذف الطلبات.")) await clearMenuData();
     if (el.dataset.action === "repairVisibility") await repairVisibility();
     if (el.dataset.action === "downloadBackup") backupData();
     if (el.dataset.action === "restoreBackup") await restoreBackup();
@@ -578,9 +872,16 @@
 
   app.addEventListener("change", async event => {
     if (event.target.dataset.status) {
-      const id = event.target.dataset.status;
-      await db.collection("orders").doc(id).set({ status: event.target.value }, { merge: true });
-      await db.collection("public_order_status").doc(id).set({ status: event.target.value, updatedAtMs: Date.now() }, { merge: true });
+      await updateOrderStatus(event.target.dataset.status, event.target.value);
+    }
+    if (event.target.dataset.alarmSetting) {
+      const key = event.target.dataset.alarmSetting;
+      state.alarmSettings[key] = key === "volume" ? Number(event.target.value) : event.target.value;
+      saveAlarmSettings();
+      if (alarmTimer) {
+        stopOrderAlarm();
+        startOrderAlarm();
+      }
     }
     if (event.target.dataset.filter === "from") { state.dateFrom = event.target.value; render(); }
     if (event.target.dataset.filter === "to") { state.dateTo = event.target.value; render(); }
@@ -606,25 +907,31 @@
     }
     state.user = user;
     render();
-    db.collection("categories").onSnapshot(s => applyMenuSnapshot("categories", s, K.categoriesSeed), () => { state.categories = K.categoriesSeed; publishMenuSync(); render(); });
-    db.collection("items").onSnapshot(s => applyMenuSnapshot("items", s, K.itemsSeed), () => { state.items = K.itemsSeed; publishMenuSync(); render(); });
-    db.collection("settings").doc("main").onSnapshot(d => { state.settings = { ...K.settingsSeed, ...(d.exists ? d.data() : {}) }; publishMenuSync(); render(); }, () => { state.settings = K.settingsSeed; publishMenuSync(); render(); });
+    db.collection("categories").onSnapshot(s => applyMenuSnapshot("categories", s, K.categoriesSeed), () => { state.categories = state.settings.menuCleared ? [] : K.categoriesSeed; publishMenuSync(); render(); });
+    db.collection("items").onSnapshot(s => applyMenuSnapshot("items", s, K.itemsSeed), () => { state.items = state.settings.menuCleared ? [] : K.itemsSeed; publishMenuSync(); render(); });
+    db.collection("settings").doc("main").onSnapshot(d => {
+      state.settings = { ...K.settingsSeed, ...(d.exists ? d.data() : {}) };
+      if (state.settings.menuCleared && !state.categories.length) state.categories = [];
+      if (state.settings.menuCleared && !state.items.length) state.items = [];
+      publishMenuSync();
+      render();
+    }, () => { state.settings = K.settingsSeed; publishMenuSync(); render(); });
     db.collection("addons").onSnapshot(s => {
       const addons = docData(s);
-      state.addons = addons.length ? addons : K.addonsSeed;
+      state.addons = addons.length ? addons : (state.settings.menuCleared ? [] : K.addonsSeed);
       render();
     }, () => {
-      state.addons = K.addonsSeed;
+      state.addons = state.settings.menuCleared ? [] : K.addonsSeed;
       render();
     });
     db.collection("customers").onSnapshot(s => { state.customers = docData(s); });
     db.collection("orders").orderBy("createdAtMs", "desc").limit(200).onSnapshot(s => {
       const orders = docData(s);
-      const newOrders = orders.filter(o => o.status === "جديد");
-      if (lastNewOrderIds.size && newOrders.some(o => !lastNewOrderIds.has(o.id))) playNewOrderSound();
+      const newOrders = orders.filter(isNewOrder);
+      const justArrived = lastNewOrderIds.size ? newOrders.filter(o => !lastNewOrderIds.has(o.id)) : [];
       lastNewOrderIds = new Set(newOrders.map(o => o.id));
       state.orders = orders;
-      render();
+      checkPendingOrders(justArrived);
     });
   });
 })();

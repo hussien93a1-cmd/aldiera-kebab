@@ -34,6 +34,7 @@ window.KABAB = (() => {
     "جاهز",
     "مع السائق",
     "تم التسليم",
+    "مرفوض",
     "ملغي"
   ];
 
@@ -55,7 +56,8 @@ window.KABAB = (() => {
     restaurantLat: 33.355,
     restaurantLng: 44.336,
     currency,
-    whatsappEnabled: false
+    whatsappEnabled: false,
+    menuCleared: false
   };
 
   const categoriesSeed = [
