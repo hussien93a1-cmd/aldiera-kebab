@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>تسجيل دخول الإدارة - كباب الديرة</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="admin-body">
+  <main class="login-layout">
+    <section class="auth-panel">
+      <div class="brand-mark">ك</div>
+      <h1>لوحة كباب الديرة</h1>
+      <p>سجّل دخولك لإدارة المنيو والطلبات والتقارير.</p>
+      <form id="loginForm" class="stack">
+        <label>البريد الإلكتروني<input id="loginEmail" type="email" autocomplete="email" required></label>
+        <label>كلمة المرور<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+        <button class="primary-btn" type="submit">تسجيل الدخول</button>
+      </form>
+      <p id="loginMessage" class="form-message"></p>
+      <a href="index.html" class="quiet-link">العودة إلى صفحة الزبون</a>
+    </section>
+  </main>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
