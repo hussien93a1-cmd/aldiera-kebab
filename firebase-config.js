@@ -57,7 +57,8 @@ window.KABAB = (() => {
     restaurantLng: 44.336,
     currency,
     whatsappEnabled: false,
-    menuCleared: false
+    menuCleared: false,
+    seedCompleted: false
   };
 
   const categoriesSeed = [
@@ -157,11 +158,15 @@ window.KABAB = (() => {
     return snap.ref.getDownloadURL();
   }
 
-  async function seedFirestore() {
+  async function seedFirestore(force = false) {
     const services = firebaseReady();
     if (!services) throw new Error("أضف إعدادات Firebase أولًا.");
+    const settingsDoc = await services.db.collection("settings").doc("main").get();
+    if (!force && settingsDoc.exists && settingsDoc.data().seedCompleted) {
+      return;
+    }
     const batch = services.db.batch();
-    batch.set(services.db.collection("settings").doc("main"), settingsSeed, { merge: true });
+    batch.set(services.db.collection("settings").doc("main"), { ...settingsSeed, seedCompleted: true, menuCleared: false }, { merge: true });
     categoriesSeed.forEach(category => batch.set(services.db.collection("categories").doc(category.id), category, { merge: true }));
     itemsSeed.forEach(item => {
       batch.set(services.db.collection("items").doc(item.id), item, { merge: true });

@@ -6,8 +6,8 @@
   const services = K.firebaseReady();
   const db = services && services.db;
   const state = {
-    categories: read("kd_cached_categories", K.categoriesSeed),
-    items: read("kd_cached_items", K.itemsSeed),
+    categories: read("kd_cached_categories", []),
+    items: read("kd_cached_items", []),
     settings: read("kd_cached_settings", K.settingsSeed),
     cart: read("kd_customer_cart", []),
     customer: read("kd_customer_data", { name: "", phone: "", address: "", lat: "", lng: "", mapsUrl: "" }),
@@ -35,10 +35,10 @@
     localStorage.setItem("kd_table_number", state.tableNumber);
   }
   function activeCategories() {
-    return K.sortByOrder(state.categories.filter(c => c.active !== false && c.hidden !== true && !(state.orderType === "dinein" && c.id === "weight")));
+    return K.sortByOrder(state.categories.filter(c => c.deleted !== true && c.active !== false && c.hidden !== true && !(state.orderType === "dinein" && c.id === "weight")));
   }
   function activeItems(categoryId) {
-    return K.sortByOrder(state.items.filter(i => i.categoryId === categoryId && i.visible !== false && i.available !== false && hasAvailableOption(i)));
+    return K.sortByOrder(state.items.filter(i => i.deleted !== true && i.categoryId === categoryId && i.visible !== false && i.available !== false && hasAvailableOption(i)));
   }
   function hasAvailableOption(item) {
     const options = item.options || [];
@@ -297,7 +297,7 @@
     db.collection("categories").onSnapshot(s => {
       const categories = s.docs.map(d => ({ id: d.id, ...d.data() }));
       state.remoteCategoryCount = categories.length;
-      state.categories = categories.length ? categories : (state.settings.menuCleared ? [] : K.categoriesSeed);
+      state.categories = categories.filter(category => category.deleted !== true);
       localStorage.setItem("kd_cached_categories", JSON.stringify(state.categories));
       state.firebaseError = "";
       render();
@@ -308,7 +308,7 @@
     db.collection("items").onSnapshot(s => {
       const items = s.docs.map(d => ({ id: d.id, ...d.data() }));
       state.remoteItemCount = items.length;
-      state.items = items.length ? items : (state.settings.menuCleared ? [] : K.itemsSeed);
+      state.items = items.filter(item => item.deleted !== true);
       localStorage.setItem("kd_cached_items", JSON.stringify(state.items));
       state.firebaseError = "";
       render();
@@ -318,8 +318,6 @@
     });
     db.collection("settings").doc("main").onSnapshot(d => {
       state.settings = { ...K.settingsSeed, ...(d.exists ? d.data() : {}) };
-      if (state.settings.menuCleared && state.remoteCategoryCount === 0) state.categories = [];
-      if (state.settings.menuCleared && state.remoteItemCount === 0) state.items = [];
       localStorage.setItem("kd_cached_settings", JSON.stringify(state.settings));
       render();
     }, () => {

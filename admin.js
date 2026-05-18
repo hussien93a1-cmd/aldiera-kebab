@@ -41,11 +41,11 @@
   const state = {
     user: null,
     tab: "dashboard",
-    categories: K.localSync.read()?.categories || K.categoriesSeed,
-    items: K.localSync.read()?.items || K.itemsSeed,
+    categories: K.localSync.read()?.categories || [],
+    items: K.localSync.read()?.items || [],
     settings: K.localSync.read()?.settings || K.settingsSeed,
     orders: [],
-    addons: K.addonsSeed,
+    addons: K.localSync.read()?.addons || [],
     customers: [],
     editing: null,
     modal: "",
@@ -86,6 +86,10 @@
   function checked(id) { return Boolean(document.getElementById(id)?.checked); }
   function num(id) { return Number(val(id) || 0); }
   function docData(snap) { return snap.docs.map(d => ({ id: d.id, ...d.data() })); }
+  function visibleDocs(snap) { return docData(snap).filter(doc => doc.deleted !== true); }
+  function clearMenuCache() {
+    ["kd_cached_categories", "kd_cached_items", "kd_cached_settings", "kabab_menu_sync_payload", "menu_cache", "categories_cache", "items_cache"].forEach(key => localStorage.removeItem(key));
+  }
   function toast(text, type = "success-notice") {
     state.modal = `<div class="notice ${type}">${esc(text)}</div>`;
     render();
@@ -95,12 +99,13 @@
     K.localSync.publish({
       categories: state.categories,
       items: state.items,
+      addons: state.addons,
       settings: state.settings
     });
   }
-  function applyMenuSnapshot(collectionName, snap, fallback) {
-    const data = docData(snap);
-    state[collectionName] = data.length ? data : (state.settings.menuCleared ? [] : fallback);
+  function applyMenuSnapshot(collectionName, snap) {
+    const data = visibleDocs(snap);
+    state[collectionName] = data;
     publishMenuSync();
     render();
   }
@@ -554,6 +559,7 @@
     state.editing = null;
     state.categories = state.categories.filter(category => category.id !== id).concat({ id, ...payload });
     state.settings = { ...state.settings, menuCleared: false };
+    clearMenuCache();
     publishMenuSync();
     await db.collection("categories").doc(id).set(payload, { merge: true });
     await db.collection("settings").doc("main").set({ menuCleared: false }, { merge: true });
@@ -595,6 +601,7 @@
     state.editing = null;
     state.items = state.items.filter(item => item.id !== id).concat({ id, ...payload });
     state.settings = { ...state.settings, menuCleared: false };
+    clearMenuCache();
     publishMenuSync();
     await db.collection("items").doc(id).set(payload, { merge: true });
     await db.collection("settings").doc("main").set({ menuCleared: false }, { merge: true });
@@ -627,6 +634,8 @@
     };
     state.editing = null;
     state.addons = state.addons.filter(addon => addon.id !== id).concat({ id, ...payload });
+    clearMenuCache();
+    publishMenuSync();
     await db.collection("addons").doc(id).set(payload, { merge: true });
     toast("تم حفظ الإضافة.");
   }
@@ -722,6 +731,63 @@
     publishMenuSync();
     render();
     toast("تم حذف المنيو القديم. يمكنك الآن إضافة الفئات والأصناف من لوحة التحكم.");
+  }
+  async function deleteCategoryById(categoryId) {
+    try {
+      const category = state.categories.find(c => c.id === categoryId);
+      if (!category) throw new Error("الفئة غير موجودة.");
+      clearMenuCache();
+      const relatedItems = state.items.filter(item => item.categoryId === categoryId);
+      const batch = db.batch();
+      batch.set(db.collection("categories").doc(categoryId), { deleted: true, active: false, hidden: true, deletedAtMs: Date.now() }, { merge: true });
+      relatedItems.forEach(item => {
+        batch.set(db.collection("items").doc(item.id), { deleted: true, active: false, visible: false, available: false, deletedAtMs: Date.now() }, { merge: true });
+        (item.options || []).forEach(option => {
+          batch.set(db.collection("item_options").doc(`${item.id}_${option.id}`), { deleted: true, deletedAtMs: Date.now() }, { merge: true });
+        });
+        batch.set(db.collection("offers").doc(item.id), { deleted: true, active: false, deletedAtMs: Date.now() }, { merge: true });
+      });
+      await batch.commit();
+      state.categories = state.categories.filter(c => c.id !== categoryId);
+      state.items = state.items.filter(item => item.categoryId !== categoryId);
+      publishMenuSync();
+      toast("تم حذف الفئة والأصناف التابعة لها.");
+    } catch (error) {
+      console.error("Delete category error:", error);
+      toast(`فشل حذف الفئة: ${error.message}`, "error-notice");
+    }
+  }
+  async function deleteItemById(itemId) {
+    try {
+      const item = state.items.find(i => i.id === itemId);
+      if (!item) throw new Error("الصنف غير موجود.");
+      clearMenuCache();
+      const batch = db.batch();
+      batch.set(db.collection("items").doc(itemId), { deleted: true, active: false, visible: false, available: false, deletedAtMs: Date.now() }, { merge: true });
+      (item.options || []).forEach(option => {
+        batch.set(db.collection("item_options").doc(`${itemId}_${option.id}`), { deleted: true, deletedAtMs: Date.now() }, { merge: true });
+      });
+      batch.set(db.collection("offers").doc(itemId), { deleted: true, active: false, deletedAtMs: Date.now() }, { merge: true });
+      await batch.commit();
+      state.items = state.items.filter(i => i.id !== itemId);
+      publishMenuSync();
+      toast("تم حذف الصنف بنجاح.");
+    } catch (error) {
+      console.error("Delete item error:", error);
+      toast(`فشل حذف الصنف: ${error.message}`, "error-notice");
+    }
+  }
+  async function deleteAddonById(addonId) {
+    try {
+      clearMenuCache();
+      await db.collection("addons").doc(addonId).set({ deleted: true, visible: false, available: false, deletedAtMs: Date.now() }, { merge: true });
+      state.addons = state.addons.filter(addon => addon.id !== addonId);
+      publishMenuSync();
+      toast("تم حذف الإضافة بنجاح.");
+    } catch (error) {
+      console.error("Delete addon error:", error);
+      toast(`فشل حذف الإضافة: ${error.message}`, "error-notice");
+    }
   }
   async function repairVisibility() {
     const batch = db.batch();
@@ -828,17 +894,18 @@
     if (el.dataset.action === "newItem" || el.dataset.action === "newOffer") { state.editing = null; render(); }
     if (el.dataset.action === "newAddon") { state.editing = null; render(); }
     if (el.dataset.editCategory) { state.editing = { type: "category", data: state.categories.find(c => c.id === el.dataset.editCategory) }; render(); }
-    if (el.dataset.toggleCategory) { const c = state.categories.find(x => x.id === el.dataset.toggleCategory); await db.collection("categories").doc(c.id).set({ hidden: !c.hidden }, { merge: true }); }
-    if (el.dataset.deleteCategory && confirm("حذف الفئة؟")) await db.collection("categories").doc(el.dataset.deleteCategory).delete();
+    if (el.dataset.toggleCategory) { const c = state.categories.find(x => x.id === el.dataset.toggleCategory); clearMenuCache(); await db.collection("categories").doc(c.id).set({ hidden: !c.hidden, active: c.hidden === true }, { merge: true }); }
+    if (el.dataset.deleteCategory && confirm("حذف الفئة؟ سيتم أيضًا حذف الأصناف التابعة لها.")) await deleteCategoryById(el.dataset.deleteCategory);
     if (el.dataset.editItem) { state.editing = { type: "item", data: state.items.find(i => i.id === el.dataset.editItem) }; render(); }
-    if (el.dataset.toggleItem) { const i = state.items.find(x => x.id === el.dataset.toggleItem); await db.collection("items").doc(i.id).set({ available: i.available === false }, { merge: true }); }
-    if (el.dataset.deleteItem && confirm("حذف الصنف؟")) await db.collection("items").doc(el.dataset.deleteItem).delete();
+    if (el.dataset.toggleItem) { const i = state.items.find(x => x.id === el.dataset.toggleItem); clearMenuCache(); await db.collection("items").doc(i.id).set({ available: i.available === false }, { merge: true }); }
+    if (el.dataset.deleteItem && confirm("حذف الصنف؟")) await deleteItemById(el.dataset.deleteItem);
     if (el.dataset.editAddon) { state.editing = { type: "addon", data: state.addons.find(addon => addon.id === el.dataset.editAddon) }; render(); }
     if (el.dataset.toggleAddon) {
       const addon = state.addons.find(x => x.id === el.dataset.toggleAddon);
+      clearMenuCache();
       await db.collection("addons").doc(addon.id).set({ visible: addon.visible === false }, { merge: true });
     }
-    if (el.dataset.deleteAddon && confirm("حذف الإضافة؟")) await db.collection("addons").doc(el.dataset.deleteAddon).delete();
+    if (el.dataset.deleteAddon && confirm("حذف الإضافة؟")) await deleteAddonById(el.dataset.deleteAddon);
     if (el.dataset.action === "addOption") document.getElementById("optionsEditor").insertAdjacentHTML("beforeend", optionForm());
     if (el.dataset.removeOption !== undefined) el.closest(".option-editor")?.remove();
     if (el.dataset.orderOpen) openOrderDetails(el.dataset.orderOpen);
@@ -858,9 +925,11 @@
     if (el.dataset.action === "seed" && confirm("رفع البيانات الأولية؟")) {
       state.categories = K.categoriesSeed;
       state.items = K.itemsSeed;
-      state.settings = { ...K.settingsSeed, menuCleared: false };
+      state.addons = K.addonsSeed;
+      state.settings = { ...K.settingsSeed, menuCleared: false, seedCompleted: true };
+      clearMenuCache();
       publishMenuSync();
-      await K.seedFirestore();
+      await K.seedFirestore(true);
       toast("تم رفع البيانات الأولية.");
     }
     if (el.dataset.action === "clearMenuData" && confirm("هل أنت متأكد؟ سيتم حذف الفئات والأصناف والخيارات والعروض والإضافات فقط، ولن يتم حذف الطلبات.")) await clearMenuData();
@@ -907,21 +976,18 @@
     }
     state.user = user;
     render();
-    db.collection("categories").onSnapshot(s => applyMenuSnapshot("categories", s, K.categoriesSeed), () => { state.categories = state.settings.menuCleared ? [] : K.categoriesSeed; publishMenuSync(); render(); });
-    db.collection("items").onSnapshot(s => applyMenuSnapshot("items", s, K.itemsSeed), () => { state.items = state.settings.menuCleared ? [] : K.itemsSeed; publishMenuSync(); render(); });
+    db.collection("categories").onSnapshot(s => applyMenuSnapshot("categories", s), () => { state.categories = []; publishMenuSync(); render(); });
+    db.collection("items").onSnapshot(s => applyMenuSnapshot("items", s), () => { state.items = []; publishMenuSync(); render(); });
     db.collection("settings").doc("main").onSnapshot(d => {
       state.settings = { ...K.settingsSeed, ...(d.exists ? d.data() : {}) };
-      if (state.settings.menuCleared && !state.categories.length) state.categories = [];
-      if (state.settings.menuCleared && !state.items.length) state.items = [];
       publishMenuSync();
       render();
-    }, () => { state.settings = K.settingsSeed; publishMenuSync(); render(); });
+    }, () => { state.settings = { ...K.settingsSeed, seedCompleted: true }; publishMenuSync(); render(); });
     db.collection("addons").onSnapshot(s => {
-      const addons = docData(s);
-      state.addons = addons.length ? addons : (state.settings.menuCleared ? [] : K.addonsSeed);
+      state.addons = visibleDocs(s);
       render();
     }, () => {
-      state.addons = state.settings.menuCleared ? [] : K.addonsSeed;
+      state.addons = [];
       render();
     });
     db.collection("customers").onSnapshot(s => { state.customers = docData(s); });
