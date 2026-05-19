@@ -250,6 +250,11 @@
         total: t.total,
         distanceKm: t.distance || 0,
         status: "جديد",
+        source: window.matchMedia("(display-mode: standalone)").matches ? "APK / PWA" : "صفحة الزبون",
+        paymentStatus: "دفع عند الاستلام",
+        priority: "عادي",
+        notes: state.customer.notes || "",
+        statusHistory: [{ status: "جديد", atMs: Date.now(), by: "customer" }],
         archived: false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         createdAtMs: Date.now()

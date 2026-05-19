@@ -51,6 +51,14 @@
     modal: "",
     selectedOrderId: "",
     orderToast: "",
+    orderFilters: {
+      status: "all",
+      type: "all",
+      payment: "all",
+      search: "",
+      sort: "newest",
+      lateOnly: false
+    },
     alarmMuted: localStorage.getItem("kd_alarm_muted") === "1",
     alarmSettings: (() => {
       try {
@@ -196,6 +204,45 @@
     if (order.createdAt?.toDate) return order.createdAt.toDate();
     return new Date(order.createdAtMs || Date.now());
   }
+  function orderWaitMinutes(order) {
+    return Math.max(0, Math.floor((Date.now() - orderTime(order).getTime()) / 60000));
+  }
+  function isLateOrder(order) {
+    return isNewOrder(order) && orderWaitMinutes(order) >= 10;
+  }
+  function filteredOnlineOrders() {
+    const filters = state.orderFilters;
+    let list = state.orders.filter(order => !order.archived);
+    if (filters.status !== "all") list = list.filter(order => (order.status || "جديد") === filters.status);
+    if (filters.type !== "all") list = list.filter(order => (order.orderType || "") === filters.type);
+    if (filters.payment !== "all") list = list.filter(order => (order.paymentStatus || "دفع عند الاستلام") === filters.payment);
+    if (filters.lateOnly) list = list.filter(isLateOrder);
+    if (filters.search.trim()) {
+      const q = filters.search.trim().toLowerCase();
+      list = list.filter(order => [order.id, order.customer?.name, order.customer?.phone].some(value => String(value || "").toLowerCase().includes(q)));
+    }
+    const sorters = {
+      newest: (a, b) => orderTime(b) - orderTime(a),
+      oldest: (a, b) => orderTime(a) - orderTime(b),
+      highest: (a, b) => Number(b.total || 0) - Number(a.total || 0)
+    };
+    return [...list].sort(sorters[filters.sort] || sorters.newest);
+  }
+  function onlineOrderStats(list = state.orders.filter(order => !order.archived)) {
+    const today = new Date().toDateString();
+    const doneToday = list.filter(order => ["تم التسليم", "مكتمل"].includes(order.status) && orderTime(order).toDateString() === today);
+    const prepTimes = list.filter(order => order.acceptedAtMs && order.readyAtMs).map(order => Math.max(0, Math.round((order.readyAtMs - order.acceptedAtMs) / 60000)));
+    return {
+      newCount: list.filter(isNewOrder).length,
+      preparing: list.filter(order => order.status === "قيد التحضير").length,
+      ready: list.filter(order => order.status === "جاهز").length,
+      completed: doneToday.length,
+      canceled: list.filter(order => ["ملغي", "مرفوض"].includes(order.status)).length,
+      sales: doneToday.reduce((sum, order) => sum + Number(order.total || 0), 0),
+      avgPrep: prepTimes.length ? Math.round(prepTimes.reduce((a, b) => a + b, 0) / prepTimes.length) : 0,
+      delivery: list.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0)
+    };
+  }
   function filteredOrders() {
     return state.orders.filter(order => {
       const d = orderTime(order);
@@ -270,17 +317,28 @@
   function metric(label, value) { return `<div class="metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`; }
 
   function renderOrders() {
-    const live = state.orders.filter(o => !o.archived);
+    const live = filteredOnlineOrders();
     const pending = pendingNewOrders().length;
-    return `<section class="panel order-control-panel">
+    const stats = onlineOrderStats();
+    return `<section class="panel order-control-panel online-orders-section">
       <div class="panel-head">
-        <div><h3>الطلبات الواردة</h3><p class="muted">طلبات صفحة الزبون تظهر هنا مباشرة</p></div>
+        <div><h3>طلبات الأونلاين / Online Orders</h3><p class="muted">طلبات صفحة الزبون و APK تظهر هنا لحظيًا</p></div>
         <div class="row-actions">
           <button class="primary-btn ${pending ? "pulse-alert" : ""}" data-action="enableOrderAudio">تفعيل صوت التنبيهات ${pending ? `<span class="new-count">${pending}</span>` : ""}</button>
           <button class="warning-btn" data-action="stopAlarm">إيقاف الصوت مؤقتًا</button>
-          <button class="ghost-btn" data-action="requestNotifications">تفعيل إشعارات المتصفح</button>
+          <button class="ghost-btn" data-action="requestNotifications">إشعارات المتصفح</button>
           <button class="ghost-btn" data-action="archiveDone">أرشفة المكتملة</button>
         </div>
+      </div>
+      <div class="metrics online-metrics">
+        ${metric("الطلبات الجديدة", stats.newCount)}
+        ${metric("قيد التحضير", stats.preparing)}
+        ${metric("الجاهزة", stats.ready)}
+        ${metric("مكتملة اليوم", stats.completed)}
+        ${metric("الملغية", stats.canceled)}
+        ${metric("مبيعات اليوم", K.fmt(stats.sales))}
+        ${metric("متوسط التحضير", stats.avgPrep + " دقيقة")}
+        ${metric("أجور التوصيل", K.fmt(stats.delivery))}
       </div>
       <div class="alarm-settings">
         <label>صوت التنبيه<select data-alarm-setting="sound">
@@ -290,6 +348,14 @@
         </select></label>
         <label>مستوى الصوت<input type="range" min="0.1" max="1" step="0.1" value="${esc(state.alarmSettings.volume)}" data-alarm-setting="volume"></label>
         <button class="ghost-btn" data-action="testAlarm">اختبار الصوت</button>
+      </div>
+      <div class="order-filters">
+        <label>بحث<input data-order-filter="search" placeholder="رقم الطلب / الاسم / الهاتف" value="${esc(state.orderFilters.search)}"></label>
+        <label>الحالة<select data-order-filter="status"><option value="all">كل الحالات</option>${K.orderStatuses.map(s => `<option value="${s}" ${state.orderFilters.status === s ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+        <label>نوع الطلب<select data-order-filter="type"><option value="all">كل الأنواع</option><option value="delivery" ${state.orderFilters.type === "delivery" ? "selected" : ""}>دليفري</option><option value="takeaway" ${state.orderFilters.type === "takeaway" ? "selected" : ""}>سفري</option><option value="dinein" ${state.orderFilters.type === "dinein" ? "selected" : ""}>صالة</option></select></label>
+        <label>الدفع<select data-order-filter="payment"><option value="all">كل حالات الدفع</option><option value="دفع عند الاستلام" ${state.orderFilters.payment === "دفع عند الاستلام" ? "selected" : ""}>دفع عند الاستلام</option><option value="مدفوع" ${state.orderFilters.payment === "مدفوع" ? "selected" : ""}>مدفوع</option><option value="غير مدفوع" ${state.orderFilters.payment === "غير مدفوع" ? "selected" : ""}>غير مدفوع</option></select></label>
+        <label>الترتيب<select data-order-filter="sort"><option value="newest" ${state.orderFilters.sort === "newest" ? "selected" : ""}>الأحدث</option><option value="oldest" ${state.orderFilters.sort === "oldest" ? "selected" : ""}>الأقدم</option><option value="highest" ${state.orderFilters.sort === "highest" ? "selected" : ""}>الأعلى قيمة</option></select></label>
+        <label class="inline-check"><input type="checkbox" data-order-filter="lateOnly" ${state.orderFilters.lateOnly ? "checked" : ""}> الطلبات المتأخرة</label>
       </div>
       ${renderOrderCards(live)}
     </section>`;
@@ -313,6 +379,10 @@
     return `<div class="order-card-grid">${orders.map(order => {
       const itemCount = (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
       const status = order.status || "جديد";
+      const wait = orderWaitMinutes(order);
+      const mapsUrl = orderMapsUrl(order);
+      const payment = order.paymentStatus || "دفع عند الاستلام";
+      const source = order.source || "صفحة الزبون";
       return `<article class="order-card status-${statusClass(status)} ${isNewOrder(order) ? "is-new-order" : ""}" data-order-open="${order.id}">
         <div class="order-card-head">
           <div><strong>#${esc(order.id.slice(0, 8))}</strong><span class="status-chip">${esc(status)}</span></div>
@@ -320,18 +390,25 @@
         </div>
         <div class="order-meta">
           <span>${orderTime(order).toLocaleString("ar-IQ")}</span>
+          <span>انتظار ${wait} دقيقة</span>
           <span>${esc(orderTypeLabel(order.orderType))}</span>
-          <span>المصدر: صفحة الزبون</span>
+          <span>المصدر: ${esc(source)}</span>
+          <span>${esc(payment)}</span>
+          ${isLateOrder(order) ? `<span class="late-badge">متأخر</span>` : ""}
         </div>
         <h3>${esc(order.customer?.name || "زبون")}</h3>
         <p class="muted">${esc(order.customer?.phone || "")}</p>
-        <p class="muted">${esc(order.customer?.address || order.tableNumber || "لا يوجد عنوان")}</p>
+        <p class="muted">${esc(order.customer?.address || order.customer?.region || order.tableNumber || "لا يوجد عنوان")}</p>
+        ${order.distanceKm ? `<p class="muted">المسافة: ${Number(order.distanceKm).toFixed(2)} كم</p>` : ""}
         <div class="order-summary-line"><span>${itemCount} صنف</span><strong>${K.fmt(order.total)}</strong></div>
         ${order.notes ? `<p class="order-note">${esc(order.notes)}</p>` : ""}
         <div class="row-actions">
           <button class="mini-btn green" data-accept-order="${order.id}">قبول</button>
           <button class="mini-btn red" data-reject-order="${order.id}">رفض</button>
+          <button class="mini-btn orange" data-status-quick="${order.id}" data-next-status="قيد التحضير">تحضير</button>
+          <button class="mini-btn green" data-status-quick="${order.id}" data-next-status="جاهز">جاهز</button>
           <button class="mini-btn" data-order-open="${order.id}">التفاصيل</button>
+          ${mapsUrl ? `<a class="mini-btn" href="${esc(mapsUrl)}" target="_blank">الموقع</a>` : ""}
         </div>
       </article>`;
     }).join("")}</div>`;
@@ -358,6 +435,13 @@
   function orderMapsUrl(order) {
     return order.customer?.mapsUrl || (order.customer?.lat && order.customer?.lng ? `https://maps.google.com/?q=${order.customer.lat},${order.customer.lng}` : "");
   }
+  function renderStatusTimeline(order) {
+    const history = order.statusHistory || [];
+    if (!history.length) {
+      return `<div class="timeline"><div><strong>وصول الطلب</strong><span>${orderTime(order).toLocaleString("ar-IQ")}</span></div></div>`;
+    }
+    return `<div class="timeline">${history.map(entry => `<div><strong>${esc(entry.status || "")}</strong><span>${new Date(entry.atMs || Date.now()).toLocaleString("ar-IQ")} - ${esc(entry.by || "النظام")}</span>${entry.reason ? `<p class="muted">${esc(entry.reason)}</p>` : ""}</div>`).join("")}</div>`;
+  }
 
   function renderOrderDetailsModal() {
     const order = selectedOrder();
@@ -376,9 +460,11 @@
             <p><strong>الاسم:</strong> ${esc(order.customer?.name || "")}</p>
             <p><strong>الهاتف:</strong> ${esc(order.customer?.phone || "")}</p>
             <p><strong>العنوان:</strong> ${esc(order.customer?.address || order.tableNumber || "")}</p>
+            <p><strong>المنطقة:</strong> ${esc(order.customer?.region || "غير محددة")}</p>
+            <p><strong>المسافة:</strong> ${order.distanceKm ? `${Number(order.distanceKm).toFixed(2)} كم` : "غير محسوبة"}</p>
             <p><strong>الملاحظات:</strong> ${esc(order.notes || "لا توجد")}</p>
             <p><strong>الدفع:</strong> ${esc(order.paymentStatus || "غير محدد")}</p>
-            <p><strong>المصدر:</strong> صفحة الزبون</p>
+            <p><strong>المصدر:</strong> ${esc(order.source || "صفحة الزبون")}</p>
           </div>
           <div class="panel stack">
             <h3>الحالة والإجمالي</h3>
@@ -394,15 +480,24 @@
           <h3>الأصناف</h3>
           <div class="order-lines">${(order.items || []).map(item => `<div class="order-line">
             <div><strong>${esc(item.name)}</strong><p class="muted">${esc(item.optionName || "")}${item.addons ? ` - إضافات: ${esc(item.addons)}` : ""}</p>${item.notes ? `<p class="muted">ملاحظة: ${esc(item.notes)}</p>` : ""}</div>
+            ${item.available === false ? `<span class="late-badge">غير متوفر</span>` : ""}
             <span>×${esc(item.quantity || 1)}</span>
+            <span>${K.fmt(item.price || 0)}</span>
             <strong>${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}</strong>
           </div>`).join("")}</div>
         </div>
+        <div class="panel"><h3>سجل الحالة</h3>${renderStatusTimeline(order)}</div>
         <div class="row-actions order-modal-actions">
           <button class="success-btn" data-accept-order="${order.id}">قبول الطلب</button>
           <button class="danger-btn" data-reject-order="${order.id}">رفض الطلب</button>
+          <button class="warning-btn" data-status-quick="${order.id}" data-next-status="قيد التحضير">قيد التحضير</button>
+          <button class="success-btn" data-status-quick="${order.id}" data-next-status="جاهز">جاهز</button>
+          <button class="ghost-btn" data-status-quick="${order.id}" data-next-status="مع السائق">مع السائق</button>
+          <button class="success-btn" data-status-quick="${order.id}" data-next-status="تم التسليم">مكتمل</button>
+          <button class="danger-btn" data-status-quick="${order.id}" data-next-status="ملغي">ملغي</button>
           <button class="ghost-btn" data-print-kitchen="${order.id}">طباعة طلب مطبخ</button>
           <button class="ghost-btn" data-print-invoice="${order.id}">طباعة فاتورة زبون</button>
+          <button class="ghost-btn" data-copy-order="${order.id}">نسخ بيانات الطلب</button>
           ${mapsUrl ? `<a class="ghost-btn" href="${esc(mapsUrl)}" target="_blank">فتح الموقع</a>` : ""}
           ${order.customer?.phone ? `<a class="ghost-btn" href="tel:${esc(order.customer.phone)}">اتصال</a><a class="success-btn" target="_blank" href="https://wa.me/${esc(String(order.customer.phone).replace(/\\D/g, ""))}">واتساب</a>` : ""}
         </div>
@@ -807,11 +902,21 @@
     state.selectedOrderId = orderId;
     render();
   }
-  async function updateOrderStatus(orderId, status) {
-    await db.collection("orders").doc(orderId).set({ status, source: "customer-menu", updatedAtMs: Date.now() }, { merge: true });
+  async function updateOrderStatus(orderId, status, extra = {}) {
+    const now = Date.now();
+    const order = state.orders.find(o => o.id === orderId) || {};
+    const history = (order.statusHistory || []).concat({ status, atMs: now, by: state.user?.email || "admin", reason: extra.cancelReason || extra.rejectReason || "" });
+    const timestamps = {};
+    if (status === "مقبول") timestamps.acceptedAtMs = now;
+    if (status === "قيد التحضير") timestamps.preparingAtMs = now;
+    if (status === "جاهز") timestamps.readyAtMs = now;
+    if (status === "مع السائق") timestamps.driverAtMs = now;
+    if (status === "تم التسليم" || status === "مكتمل") timestamps.completedAtMs = now;
+    if (status === "ملغي" || status === "مرفوض") timestamps.canceledAtMs = now;
+    await db.collection("orders").doc(orderId).set({ status, source: order.source || "صفحة الزبون", updatedAtMs: now, statusHistory: history, ...timestamps, ...extra }, { merge: true });
     await db.collection("public_order_status").doc(orderId).set({ status, updatedAtMs: Date.now() }, { merge: true });
     if (!pendingNewOrders().filter(order => order.id !== orderId).length) stopOrderAlarm();
-    state.orders = state.orders.map(order => order.id === orderId ? { ...order, status } : order);
+    state.orders = state.orders.map(order => order.id === orderId ? { ...order, status, statusHistory: history, ...timestamps, ...extra } : order);
     render();
   }
   async function acceptOrder(orderId) {
@@ -819,8 +924,18 @@
     toast("تم قبول الطلب.");
   }
   async function rejectOrder(orderId) {
-    await updateOrderStatus(orderId, "مرفوض");
+    const reason = window.prompt("سبب رفض الطلب؟") || "";
+    await updateOrderStatus(orderId, "مرفوض", { rejectReason: reason });
     toast("تم رفض الطلب.", "error-notice");
+  }
+  function orderPlainText(order) {
+    return `طلب #${order.id}\nالحالة: ${order.status || "جديد"}\nالزبون: ${order.customer?.name || ""}\nالهاتف: ${order.customer?.phone || ""}\nالعنوان: ${order.customer?.address || ""}\n${(order.items || []).map(item => `- ${item.name} / ${item.optionName || ""} × ${item.quantity || 1}`).join("\n")}\nالإجمالي: ${K.fmt(order.total)}`;
+  }
+  async function copyOrderData(orderId) {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+    await navigator.clipboard.writeText(orderPlainText(order));
+    toast("تم نسخ بيانات الطلب.");
   }
   function printKitchenOrder(orderId) {
     const order = state.orders.find(o => o.id === orderId);
@@ -911,8 +1026,10 @@
     if (el.dataset.orderOpen) openOrderDetails(el.dataset.orderOpen);
     if (el.dataset.acceptOrder) await acceptOrder(el.dataset.acceptOrder);
     if (el.dataset.rejectOrder) await rejectOrder(el.dataset.rejectOrder);
+    if (el.dataset.statusQuick) await updateOrderStatus(el.dataset.statusQuick, el.dataset.nextStatus);
     if (el.dataset.printKitchen) printKitchenOrder(el.dataset.printKitchen);
     if (el.dataset.printInvoice) printCustomerInvoice(el.dataset.printInvoice);
+    if (el.dataset.copyOrder) await copyOrderData(el.dataset.copyOrder);
     if (el.dataset.archive) await db.collection("orders").doc(el.dataset.archive).set({ archived: true }, { merge: true });
     if (el.dataset.deleteOrder && confirm("حذف الطلب؟")) await db.collection("orders").doc(el.dataset.deleteOrder).delete();
     if (el.dataset.print) printCustomerInvoice(el.dataset.print);
@@ -951,6 +1068,11 @@
         stopOrderAlarm();
         startOrderAlarm();
       }
+    }
+    if (event.target.dataset.orderFilter) {
+      const key = event.target.dataset.orderFilter;
+      state.orderFilters[key] = key === "lateOnly" ? event.target.checked : event.target.value;
+      render();
     }
     if (event.target.dataset.filter === "from") { state.dateFrom = event.target.value; render(); }
     if (event.target.dataset.filter === "to") { state.dateTo = event.target.value; render(); }

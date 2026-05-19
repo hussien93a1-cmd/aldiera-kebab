@@ -1,0 +1,16 @@
+{
+  "appId": "com.kabab.aldeera",
+  "appName": "كباب الديرة",
+  "webDir": ".",
+  "server": {
+    "url": "https://hussien93a1-cmd.github.io/aldiera-kebab/",
+    "cleartext": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "backgroundColor": "#ea580c",
+      "showSpinner": false
+    }
+  }
+}

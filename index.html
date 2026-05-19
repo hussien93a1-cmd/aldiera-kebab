@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>كباب الديرة - المنيو الإلكتروني</title>
+  <meta name="theme-color" content="#ea580c">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
@@ -18,5 +21,10 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="customer.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("service-worker.js").catch(console.error));
+    }
+  </script>
 </body>
 </html>

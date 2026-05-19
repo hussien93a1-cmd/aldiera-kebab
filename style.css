@@ -246,12 +246,17 @@ th { background: #fff7ed; font-weight: 900; color: #7c2d12; }
 .order-card h3, .order-card p { margin: 0; }
 .order-card-head, .order-summary-line, .order-meta, .order-line, .print-line { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .order-meta { flex-wrap: wrap; color: var(--muted); font-size: 12px; font-weight: 800; }
+.order-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; margin: 14px 0; padding: 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; }
+.online-metrics .metric { border-right: 5px solid var(--orange); }
+.inline-check { display: flex; align-items: center; gap: 8px; align-self: end; min-height: 44px; }
+.late-badge { background: #991b1b; color: #fff; border-radius: 999px; padding: 4px 9px; font-size: 11px; font-weight: 900; }
 .new-badge { background: #dc2626; color: white; border-radius: 999px; padding: 5px 10px; font-weight: 900; font-size: 12px; animation: blinkBadge .8s infinite alternate; }
 @keyframes blinkBadge { from { opacity: .55; } to { opacity: 1; } }
 .status-new { border-right-color: #ef4444; background: #fff7ed; }
 .status-accepted { border-right-color: #2563eb; }
 .status-preparing { border-right-color: #eab308; }
 .status-ready { border-right-color: #16a34a; }
+.status-neutral { border-right-color: #7c3aed; }
 .status-canceled { border-right-color: #991b1b; background: #fef2f2; }
 .is-new-order { animation: softShake 1.2s infinite; }
 @keyframes softShake { 0%,100% { transform: translateX(0); } 30% { transform: translateX(2px); } 60% { transform: translateX(-2px); } }
@@ -259,6 +264,11 @@ th { background: #fff7ed; font-weight: 900; color: #7c2d12; }
 .order-lines { display: grid; gap: 8px; }
 .order-line { border-bottom: 1px solid #eee; padding: 10px 0; }
 .order-modal-actions { margin-top: 12px; }
+.timeline { display: grid; gap: 10px; border-right: 3px solid #fed7aa; padding-right: 12px; }
+.timeline > div { position: relative; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px; }
+.timeline > div::before { content: ""; position: absolute; right: -20px; top: 14px; width: 10px; height: 10px; background: var(--orange); border-radius: 50%; }
+.timeline strong { display: block; }
+.timeline span { color: var(--muted); font-size: 12px; font-weight: 800; }
 .thermal-print { width: 58mm; max-width: 58mm; font-family: "Cairo", sans-serif; font-size: 11px; direction: rtl; color: #000; }
 .thermal-print h1, .thermal-print h2, .thermal-print p { margin: 3px 0; text-align: center; }
 .thermal-print hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
