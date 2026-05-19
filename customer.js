@@ -181,6 +181,15 @@
     clearTimeout(state.routeTimer);
     state.routeTimer = setTimeout(requestRoute, 650);
   }
+  function routeGeometryForStorage() {
+    if (!state.route?.routeGeometry) return "";
+    try {
+      return JSON.stringify(state.route.routeGeometry);
+    } catch (error) {
+      console.warn("Route geometry stringify failed", error);
+      return "";
+    }
+  }
   function setMessage(text, type = "notice") {
     state.message = text ? `<div class="${type}">${text}</div>` : "";
     render();
@@ -461,7 +470,7 @@
         distanceKm: finalTotals.distance || 0,
         routeDurationMin: finalTotals.durationMin || 0,
         routeProvider: state.route?.provider || "",
-        routeGeometry: state.route?.routeGeometry || null,
+        routeGeometryJson: routeGeometryForStorage(),
         status: "جديد",
         source: window.matchMedia("(display-mode: standalone)").matches ? "APK / PWA" : "صفحة الزبون",
         paymentStatus: "دفع عند الاستلام",
@@ -492,7 +501,8 @@
       subscribeLastOrder();
     } catch (error) {
       const details = error && error.code ? ` (${error.code})` : "";
-      state.message = `<div class="error-notice">تعذر إرسال الطلب${details}. تأكد من نشر Firestore Rules الموجودة في ملف firestore-rules.txt.</div>`;
+      const message = error?.message ? ` - ${escapeHtml(error.message)}` : "";
+      state.message = `<div class="error-notice">تعذر إرسال الطلب${details}${message}. تأكد من نشر Firestore Rules الموجودة في ملف firestore-rules.txt.</div>`;
       console.error("Order submit failed", error);
     } finally {
       state.isSending = false;
