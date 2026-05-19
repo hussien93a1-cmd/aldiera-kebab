@@ -399,7 +399,7 @@
         <h3>${esc(order.customer?.name || "زبون")}</h3>
         <p class="muted">${esc(order.customer?.phone || "")}</p>
         <p class="muted">${esc(order.customer?.address || order.customer?.region || order.tableNumber || "لا يوجد عنوان")}</p>
-        ${order.distanceKm ? `<p class="muted">المسافة: ${Number(order.distanceKm).toFixed(2)} كم</p>` : ""}
+        ${order.distanceKm ? `<p class="muted">المسافة: ${Number(order.distanceKm).toFixed(2)} كم - الوقت: ${Number(order.routeDurationMin || 0)} دقيقة - التوصيل: ${K.fmt(order.deliveryFee)}</p>` : ""}
         <div class="order-summary-line"><span>${itemCount} صنف</span><strong>${K.fmt(order.total)}</strong></div>
         ${order.notes ? `<p class="order-note">${esc(order.notes)}</p>` : ""}
         <div class="row-actions">
@@ -408,7 +408,7 @@
           <button class="mini-btn orange" data-status-quick="${order.id}" data-next-status="قيد التحضير">تحضير</button>
           <button class="mini-btn green" data-status-quick="${order.id}" data-next-status="جاهز">جاهز</button>
           <button class="mini-btn" data-order-open="${order.id}">التفاصيل</button>
-          ${mapsUrl ? `<a class="mini-btn" href="${esc(mapsUrl)}" target="_blank">الموقع</a>` : ""}
+          ${mapsUrl ? `<a class="mini-btn" href="${esc(mapsUrl)}" target="_blank">مسار السائق</a>` : ""}
         </div>
       </article>`;
     }).join("")}</div>`;
@@ -433,7 +433,9 @@
   }
 
   function orderMapsUrl(order) {
-    return order.customer?.mapsUrl || (order.customer?.lat && order.customer?.lng ? `https://maps.google.com/?q=${order.customer.lat},${order.customer.lng}` : "");
+    return order.customer?.lat && order.customer?.lng
+      ? `https://www.google.com/maps/dir/?api=1&destination=${order.customer.lat},${order.customer.lng}`
+      : (order.customer?.mapsUrl || "");
   }
   function renderStatusTimeline(order) {
     const history = order.statusHistory || [];
@@ -462,6 +464,8 @@
             <p><strong>العنوان:</strong> ${esc(order.customer?.address || order.tableNumber || "")}</p>
             <p><strong>المنطقة:</strong> ${esc(order.customer?.region || "غير محددة")}</p>
             <p><strong>المسافة:</strong> ${order.distanceKm ? `${Number(order.distanceKm).toFixed(2)} كم` : "غير محسوبة"}</p>
+            <p><strong>مدة الطريق:</strong> ${order.routeDurationMin ? `${Number(order.routeDurationMin)} دقيقة` : "غير محسوبة"}</p>
+            <p><strong>مزود الخرائط:</strong> ${esc(order.routeProvider || "غير محدد")}</p>
             <p><strong>الملاحظات:</strong> ${esc(order.notes || "لا توجد")}</p>
             <p><strong>الدفع:</strong> ${esc(order.paymentStatus || "غير محدد")}</p>
             <p><strong>المصدر:</strong> ${esc(order.source || "صفحة الزبون")}</p>
@@ -471,6 +475,9 @@
             <span class="status-chip">${esc(status)}</span>
             <p><strong>مجموع الطلب:</strong> ${K.fmt(order.subtotal)}</p>
             <p><strong>التوصيل:</strong> ${K.fmt(order.deliveryFee)}</p>
+            <p><strong>التوصيل قبل التقريب:</strong> ${K.fmt(order.rawDeliveryFee || order.deliveryFee || 0)}</p>
+            <p><strong>التوصيل بعد التقريب:</strong> ${K.fmt(order.roundedDeliveryFee || order.deliveryFee || 0)}</p>
+            <p><strong>طريقة التقريب:</strong> ${esc(order.roundingMethod || "nearest_250_up")}</p>
             <p><strong>الخصم:</strong> ${K.fmt(order.discount || 0)}</p>
             <p><strong>الإجمالي النهائي:</strong> ${K.fmt(order.total)}</p>
             <label>تغيير الحالة<select data-status="${order.id}">${K.orderStatuses.map(s => `<option ${s === status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
@@ -498,7 +505,7 @@
           <button class="ghost-btn" data-print-kitchen="${order.id}">طباعة طلب مطبخ</button>
           <button class="ghost-btn" data-print-invoice="${order.id}">طباعة فاتورة زبون</button>
           <button class="ghost-btn" data-copy-order="${order.id}">نسخ بيانات الطلب</button>
-          ${mapsUrl ? `<a class="ghost-btn" href="${esc(mapsUrl)}" target="_blank">فتح الموقع</a>` : ""}
+          ${mapsUrl ? `<a class="ghost-btn" href="${esc(mapsUrl)}" target="_blank">فتح المسار للسائق</a>` : ""}
           ${order.customer?.phone ? `<a class="ghost-btn" href="tel:${esc(order.customer.phone)}">اتصال</a><a class="success-btn" target="_blank" href="https://wa.me/${esc(String(order.customer.phone).replace(/\\D/g, ""))}">واتساب</a>` : ""}
         </div>
       </section>
@@ -612,10 +619,13 @@
       <div class="form-grid"><label>اسم المطعم<input id="setName" value="${esc(s.restaurantName)}"></label><label>الشعار URL<input id="setLogo" value="${esc(s.logoUrl)}"></label><label>العملة<input id="setCurrency" value="${esc(s.currency || K.currency)}"></label></div>
       <div class="form-grid"><label>الهاتف 1<input id="setPhone1" value="${esc((s.phones || [])[0] || "")}"></label><label>الهاتف 2<input id="setPhone2" value="${esc((s.phones || [])[1] || "")}"></label><label>واتساب<input id="setWhatsapp" value="${esc(s.whatsappNumber || "")}"></label></div>
       <label>العنوان<input id="setAddress" value="${esc(s.address || "")}"></label>
+      <label>جملة واجهة الزبون<input id="setCustomerHeroText" value="${esc(s.customerHeroText || "سفري، صالة، ودليفري من المنيو المتزامن مباشرة.")}"></label>
       <div class="form-grid"><label><input id="setOpen" type="checkbox" ${s.isOpen ? "checked" : ""}> المطعم مفتوح</label><label><input id="setWhatsappEnabled" type="checkbox" ${s.whatsappEnabled ? "checked" : ""}> إظهار واتساب كخيار إضافي</label><label><input id="setDeliveryEnabled" type="checkbox" ${s.deliveryEnabled ? "checked" : ""}> تفعيل الدليفري</label></div>
       <div class="form-grid"><label>أوقات الدوام<input id="setHours" value="${esc(s.workingHours || "")}"></label><label>الحد الأدنى<input id="setMinimum" type="number" value="${esc(s.minimumOrder || 0)}"></label><label>رسالة الإغلاق<input id="setClosed" value="${esc(s.closedMessage || "")}"></label></div>
-      <div class="form-grid"><label>خط عرض المطعم<input id="setLat" type="number" step="any" value="${esc(s.restaurantLat || "")}"></label><label>خط طول المطعم<input id="setLng" type="number" step="any" value="${esc(s.restaurantLng || "")}"></label><label>نطاق التوصيل كم<input id="setRadius" type="number" value="${esc(s.deliveryRadiusKm || 7)}"></label></div>
-      <div class="form-grid"><label>نوع الأجور<select id="setFeeType"><option value="fixed" ${s.deliveryFeeType !== "per_km" ? "selected" : ""}>ثابتة</option><option value="per_km" ${s.deliveryFeeType === "per_km" ? "selected" : ""}>حسب الكيلومتر</option></select></label><label>أجور ثابتة<input id="setFee" type="number" value="${esc(s.deliveryFee || 0)}"></label><label>أجور لكل كم<input id="setFeeKm" type="number" value="${esc(s.deliveryFeePerKm || 0)}"></label></div>
+      <div class="form-grid"><label>خط عرض المطعم<input id="setLat" type="number" step="any" value="${esc(s.restaurantLat || "")}"></label><label>خط طول المطعم<input id="setLng" type="number" step="any" value="${esc(s.restaurantLng || "")}"></label><label>منطقة المطعم<input id="setArea" value="${esc(s.restaurantArea || "")}"></label></div>
+      <div class="form-grid"><label>نطاق التوصيل كم<input id="setRadius" type="number" step="0.1" value="${esc(s.deliveryRadiusKm || 7)}"></label><label><input id="setRouteEnabled" type="checkbox" ${s.deliveryRouteEnabled !== false ? "checked" : ""}> حساب التوصيل حسب مسافة الطريق</label><label>مزود الخرائط<select id="setMapProvider"><option value="osrm" ${s.mapProvider === "osrm" ? "selected" : ""}>OSRM مجاني للاختبار</option><option value="openrouteservice" ${s.mapProvider === "openrouteservice" ? "selected" : ""}>OpenRouteService</option><option value="mapbox" ${s.mapProvider === "mapbox" ? "selected" : ""}>Mapbox</option><option value="google" ${s.mapProvider === "google" ? "selected" : ""}>Google Directions</option></select></label></div>
+      <div class="form-grid"><label>API Key للخرائط<input id="setMapApiKey" value="${esc(s.mapApiKey || "")}" placeholder="اتركه فارغًا مع OSRM"></label><label>أجور أول 1 كم<input id="setFirstKmFee" type="number" value="${esc(s.deliveryFirstKmFee || s.deliveryFee || 1000)}"></label><label>أجور كل كم إضافي<input id="setExtraKmFee" type="number" value="${esc(s.deliveryExtraKmFee || s.deliveryFeePerKm || 500)}"></label></div>
+      <div class="form-grid"><label>طريقة التقريب<select id="setRounding"><option value="none" ${s.deliveryRounding === "none" ? "selected" : ""}>بدون تقريب</option><option value="nearest_250_up" ${!s.deliveryRounding || s.deliveryRounding === "nearest_250_up" ? "selected" : ""}>تقريب لأقرب 250 للأعلى</option><option value="ceil_500" ${s.deliveryRounding === "ceil_500" ? "selected" : ""}>تقريب لأقرب 500 للأعلى</option><option value="ceil_1000" ${s.deliveryRounding === "ceil_1000" ? "selected" : ""}>تقريب لأعلى 1000</option><option value="smart" ${s.deliveryRounding === "smart" ? "selected" : ""}>تقريب ذكي</option></select></label><label>أجور ثابتة احتياطية<input id="setFee" type="number" value="${esc(s.deliveryFee || 0)}"></label><label>نوع الأجور<input id="setFeeType" value="${esc(s.deliveryFeeType || "route")}" readonly></label></div>
       <button class="primary-btn" type="submit">حفظ الإعدادات</button>
     </form></section>`;
   }
@@ -742,6 +752,7 @@
       phones: [val("setPhone1"), val("setPhone2")].filter(Boolean),
       whatsappNumber: val("setWhatsapp"),
       address: val("setAddress"),
+      customerHeroText: val("setCustomerHeroText"),
       isOpen: checked("setOpen"),
       whatsappEnabled: checked("setWhatsappEnabled"),
       deliveryEnabled: checked("setDeliveryEnabled"),
@@ -750,10 +761,17 @@
       closedMessage: val("setClosed"),
       restaurantLat: Number(val("setLat") || 0),
       restaurantLng: Number(val("setLng") || 0),
+      restaurantArea: val("setArea"),
       deliveryRadiusKm: num("setRadius"),
-      deliveryFeeType: val("setFeeType"),
+      deliveryRouteEnabled: checked("setRouteEnabled"),
+      deliveryFeeType: "route",
       deliveryFee: num("setFee"),
-      deliveryFeePerKm: num("setFeeKm"),
+      deliveryFeePerKm: num("setExtraKmFee"),
+      deliveryFirstKmFee: num("setFirstKmFee"),
+      deliveryExtraKmFee: num("setExtraKmFee"),
+      deliveryRounding: val("setRounding"),
+      mapProvider: val("setMapProvider"),
+      mapApiKey: val("setMapApiKey"),
       currency: val("setCurrency") || K.currency
     }, { merge: true });
     state.settings = {
@@ -763,6 +781,7 @@
       phones: [val("setPhone1"), val("setPhone2")].filter(Boolean),
       whatsappNumber: val("setWhatsapp"),
       address: val("setAddress"),
+      customerHeroText: val("setCustomerHeroText"),
       isOpen: checked("setOpen"),
       whatsappEnabled: checked("setWhatsappEnabled"),
       deliveryEnabled: checked("setDeliveryEnabled"),
@@ -771,10 +790,17 @@
       closedMessage: val("setClosed"),
       restaurantLat: Number(val("setLat") || 0),
       restaurantLng: Number(val("setLng") || 0),
+      restaurantArea: val("setArea"),
       deliveryRadiusKm: num("setRadius"),
-      deliveryFeeType: val("setFeeType"),
+      deliveryRouteEnabled: checked("setRouteEnabled"),
+      deliveryFeeType: "route",
       deliveryFee: num("setFee"),
-      deliveryFeePerKm: num("setFeeKm"),
+      deliveryFeePerKm: num("setExtraKmFee"),
+      deliveryFirstKmFee: num("setFirstKmFee"),
+      deliveryExtraKmFee: num("setExtraKmFee"),
+      deliveryRounding: val("setRounding"),
+      mapProvider: val("setMapProvider"),
+      mapApiKey: val("setMapApiKey"),
       currency: val("setCurrency") || K.currency
     };
     publishMenuSync();
@@ -956,6 +982,7 @@
       <h2>#${esc(order.id.slice(0, 8))}</h2>
       <p>${orderTime(order).toLocaleString("ar-IQ")}</p>
       <p>${esc(orderTypeLabel(order.orderType))}</p>
+      ${order.distanceKm ? `<p>المسافة ${Number(order.distanceKm).toFixed(2)} كم - ${Number(order.routeDurationMin || 0)} دقيقة</p>` : ""}
       ${prices ? `<p>${esc(order.customer?.name || "")} - ${esc(order.customer?.phone || "")}</p><p>${esc(order.customer?.address || "")}</p>` : ""}
       <hr>
       ${(order.items || []).map(item => `<div class="print-line"><span>${esc(item.name)} / ${esc(item.optionName || "")} × ${esc(item.quantity || 1)}</span>${prices ? `<strong>${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}</strong>` : ""}</div>${item.notes ? `<p>ملاحظة: ${esc(item.notes)}</p>` : ""}`).join("")}

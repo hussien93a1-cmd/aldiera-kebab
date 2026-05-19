@@ -44,17 +44,25 @@ window.KABAB = (() => {
     phones: ["07735311855", "07838468817"],
     whatsappNumber: "9647838468817",
     address: "الحرية - شارع الدور",
+    customerHeroText: "سفري، صالة، ودليفري من المنيو المتزامن مباشرة.",
     isOpen: true,
     workingHours: "يوميًا من 12 ظهرًا حتى 12 ليلًا",
     minimumOrder: 0,
     closedMessage: "المطعم مغلق حاليًا. نعتذر منكم ونعود قريبًا.",
     deliveryEnabled: true,
-    deliveryFeeType: "fixed",
+    deliveryFeeType: "route",
     deliveryFee: 1000,
     deliveryFeePerKm: 500,
+    deliveryFirstKmFee: 1000,
+    deliveryExtraKmFee: 500,
     deliveryRadiusKm: 7,
+    deliveryRouteEnabled: true,
+    deliveryRounding: "nearest_250_up",
+    mapProvider: "osrm",
+    mapApiKey: "",
     restaurantLat: 33.355,
     restaurantLng: 44.336,
+    restaurantArea: "بغداد",
     currency,
     whatsappEnabled: false,
     menuCleared: false,
@@ -150,6 +158,42 @@ window.KABAB = (() => {
     return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
+  const roundDeliveryFee = (amount, method = "nearest_250_up") => {
+    const value = Number(amount || 0);
+    const map = {
+      nearest_250_up: 250,
+      smart: 250,
+      ceil_250: 250,
+      ceil_500: 500,
+      ceil_1000: 1000,
+      nearest_250: 250,
+      nearest_500: 500
+    };
+    const unit = map[method] || 1;
+    if (["nearest_250_up", "smart"].includes(method)) return Math.ceil(value / 250) * 250;
+    if (method.startsWith("nearest")) return Math.round(value / unit) * unit;
+    if (method === "none") return Math.ceil(value);
+    return Math.ceil(value / unit) * unit;
+  };
+
+  const deliveryFeeBreakdown = (routeDistanceKm, settings = settingsSeed) => {
+    const distance = Number(routeDistanceKm || 0);
+    if (!distance) return { rawDeliveryFee: 0, roundedDeliveryFee: 0, roundingMethod: settings.deliveryRounding || "nearest_250_up" };
+    const firstKmFee = Number(settings.deliveryFirstKmFee ?? settings.deliveryFee ?? 1000);
+    const extraKmFee = Number(settings.deliveryExtraKmFee ?? settings.deliveryFeePerKm ?? 500);
+    const rawFee = distance <= 1 ? firstKmFee : firstKmFee + ((distance - 1) * extraKmFee);
+    const roundingMethod = settings.deliveryRounding || "nearest_250_up";
+    return {
+      rawDeliveryFee: Math.ceil(rawFee),
+      roundedDeliveryFee: roundDeliveryFee(rawFee, roundingMethod),
+      roundingMethod
+    };
+  };
+
+  const calculateDeliveryFee = (routeDistanceKm, settings = settingsSeed) => {
+    return deliveryFeeBreakdown(routeDistanceKm, settings).roundedDeliveryFee;
+  };
+
   async function uploadImage(file, folder = "menu") {
     const services = firebaseReady();
     if (!services || !file) return "";
@@ -207,6 +251,9 @@ window.KABAB = (() => {
     id,
     percentOff,
     distanceKm,
+    calculateDeliveryFee,
+    deliveryFeeBreakdown,
+    roundDeliveryFee,
     uploadImage,
     seedFirestore,
     localSync

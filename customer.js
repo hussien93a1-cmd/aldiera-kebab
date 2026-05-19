@@ -12,6 +12,7 @@
     cart: read("kd_customer_cart", []),
     customer: read("kd_customer_data", { name: "", phone: "", address: "", lat: "", lng: "", mapsUrl: "" }),
     orderType: localStorage.getItem("kd_order_type") || "takeaway",
+    screen: "welcome",
     tableNumber: localStorage.getItem("kd_table_number") || "",
     view: "categories",
     selectedCategory: "",
@@ -22,7 +23,11 @@
     firebaseError: "",
     isSending: false,
     remoteCategoryCount: 0,
-    remoteItemCount: 0
+    remoteItemCount: 0,
+    route: read("kd_customer_route", null),
+    routeLoading: false,
+    routeError: "",
+    routeTimer: null
   };
 
   function read(key, fallback) {
@@ -31,6 +36,7 @@
   function save() {
     localStorage.setItem("kd_customer_cart", JSON.stringify(state.cart));
     localStorage.setItem("kd_customer_data", JSON.stringify(state.customer));
+    if (state.route) localStorage.setItem("kd_customer_route", JSON.stringify(state.route));
     localStorage.setItem("kd_order_type", state.orderType);
     localStorage.setItem("kd_table_number", state.tableNumber);
   }
@@ -50,20 +56,130 @@
   }
   function totals() {
     const subtotal = state.cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
-    const distance = currentDistance();
+    const distance = Number(state.route?.distanceKm || 0);
     let deliveryFee = 0;
+    let rawDeliveryFee = 0;
+    let roundedDeliveryFee = 0;
+    let roundingMethod = state.settings.deliveryRounding || "nearest_250_up";
     if (state.orderType === "delivery") {
-      deliveryFee = state.settings.deliveryFeeType === "per_km" && distance
-        ? Math.ceil(distance * Number(state.settings.deliveryFeePerKm || 0))
-        : Number(state.settings.deliveryFee || 0);
+      if (state.settings.deliveryRouteEnabled !== false && distance) {
+        const fee = K.deliveryFeeBreakdown(distance, state.settings);
+        rawDeliveryFee = fee.rawDeliveryFee;
+        roundedDeliveryFee = fee.roundedDeliveryFee;
+        roundingMethod = fee.roundingMethod;
+        deliveryFee = roundedDeliveryFee;
+      } else {
+        deliveryFee = Number(state.settings.deliveryFee || 0);
+        rawDeliveryFee = deliveryFee;
+        roundedDeliveryFee = deliveryFee;
+      }
     }
-    return { subtotal, deliveryFee, total: subtotal + deliveryFee, distance };
+    return {
+      subtotal,
+      deliveryFee,
+      rawDeliveryFee,
+      roundedDeliveryFee,
+      roundingMethod,
+      total: subtotal + deliveryFee,
+      distance,
+      durationMin: Number(state.route?.durationMin || 0)
+    };
   }
-  function currentDistance() {
-    const lat = Number(state.customer.lat);
-    const lng = Number(state.customer.lng);
-    if (!lat || !lng || !state.settings.restaurantLat || !state.settings.restaurantLng) return 0;
-    return K.distanceKm(Number(state.settings.restaurantLat), Number(state.settings.restaurantLng), lat, lng);
+  function routeKey() {
+    return [
+      state.settings.restaurantLat,
+      state.settings.restaurantLng,
+      state.customer.lat,
+      state.customer.lng,
+      state.settings.mapProvider,
+      state.settings.mapApiKey
+    ].join("|");
+  }
+  function validCoords(lat, lng) {
+    const a = Number(lat);
+    const b = Number(lng);
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180;
+  }
+  function parseMapsLink(value) {
+    const text = String(value || "");
+    const atMatch = text.match(/@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
+    const qMatch = text.match(/[?&](?:q|query|destination)=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
+    const rawMatch = text.match(/(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
+    const match = atMatch || qMatch || rawMatch;
+    if (!match) return null;
+    return { lat: match[1], lng: match[2] };
+  }
+  async function requestRoute() {
+    if (state.orderType !== "delivery" || state.settings.deliveryRouteEnabled === false) return;
+    const start = { lat: Number(state.settings.restaurantLat), lng: Number(state.settings.restaurantLng) };
+    const end = { lat: Number(state.customer.lat), lng: Number(state.customer.lng) };
+    if (!validCoords(start.lat, start.lng) || !validCoords(end.lat, end.lng)) {
+      state.route = null;
+      state.routeError = "";
+      render();
+      return;
+    }
+    const key = routeKey();
+    if (state.route?.key === key) return;
+    state.routeLoading = true;
+    state.routeError = "";
+    render();
+    try {
+      const route = await fetchRouteDistance(start, end);
+      const fee = K.deliveryFeeBreakdown(route.distanceKm, state.settings);
+      state.route = { ...route, ...fee, deliveryFee: fee.roundedDeliveryFee, calculatedAtMs: Date.now() };
+      state.routeError = "";
+      save();
+    } catch (error) {
+      console.error("Route distance failed", error);
+      state.route = null;
+      state.routeError = error.message || "تعذر حساب مسافة الطريق.";
+    } finally {
+      state.routeLoading = false;
+      render();
+    }
+  }
+  async function fetchRouteDistance(start, end) {
+    const provider = state.settings.mapProvider || "osrm";
+    const apiKey = state.settings.mapApiKey || "";
+    if (provider === "openrouteservice") {
+      if (!apiKey) throw new Error("أضف مفتاح OpenRouteService من لوحة التحكم.");
+      const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${encodeURIComponent(apiKey)}&start=${start.lng},${start.lat}&end=${end.lng},${end.lat}`;
+      const data = await fetchJson(url);
+      const summary = data.features?.[0]?.properties?.summary;
+      if (!summary) throw new Error("لم يتم العثور على مسار توصيل.");
+      return { provider, distanceKm: summary.distance / 1000, durationMin: Math.round(summary.duration / 60), routeGeometry: data.features?.[0]?.geometry || null };
+    }
+    if (provider === "mapbox") {
+      if (!apiKey) throw new Error("أضف مفتاح Mapbox من لوحة التحكم.");
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${start.lng},${start.lat};${end.lng},${end.lat}?geometries=geojson&overview=full&access_token=${encodeURIComponent(apiKey)}`;
+      const data = await fetchJson(url);
+      const route = data.routes?.[0];
+      if (!route) throw new Error("لم يتم العثور على مسار توصيل.");
+      return { provider, distanceKm: route.distance / 1000, durationMin: Math.round(route.duration / 60), routeGeometry: route.geometry || null };
+    }
+    if (provider === "google") {
+      if (!apiKey) throw new Error("أضف مفتاح Google Directions API من لوحة التحكم.");
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${start.lat},${start.lng}&destination=${end.lat},${end.lng}&mode=driving&key=${encodeURIComponent(apiKey)}`;
+      const data = await fetchJson(url);
+      const leg = data.routes?.[0]?.legs?.[0];
+      if (!leg) throw new Error("لم يتم العثور على مسار توصيل أو أن Google Directions محجوب من المتصفح.");
+      return { provider, distanceKm: leg.distance.value / 1000, durationMin: Math.round(leg.duration.value / 60), routeGeometry: data.routes?.[0]?.overview_polyline?.points || "" };
+    }
+    const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+    const data = await fetchJson(url);
+    const route = data.routes?.[0];
+    if (!route) throw new Error("لم يتم العثور على مسار توصيل.");
+    return { provider: "osrm", distanceKm: route.distance / 1000, durationMin: Math.round(route.duration / 60), routeGeometry: route.geometry || null };
+  }
+  async function fetchJson(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`فشل الاتصال بمزود الخرائط (${response.status}).`);
+    return response.json();
+  }
+  function scheduleRouteCalculation() {
+    clearTimeout(state.routeTimer);
+    state.routeTimer = setTimeout(requestRoute, 650);
   }
   function setMessage(text, type = "notice") {
     state.message = text ? `<div class="${type}">${text}</div>` : "";
@@ -93,6 +209,17 @@
     save();
     const t = totals();
     const settings = state.settings;
+    if (state.screen === "welcome") {
+      app.className = "customer-shell intro-shell";
+      app.innerHTML = WelcomeScreen(settings);
+      return;
+    }
+    if (state.screen === "orderType") {
+      app.className = "customer-shell intro-shell";
+      app.innerHTML = OrderTypeSelector(settings);
+      return;
+    }
+    app.className = "customer-shell";
     app.innerHTML = `
       <header class="customer-header">
         <div class="header-inner">
@@ -102,6 +229,7 @@
           </div>
           <div class="header-actions">
             <button class="icon-btn" data-action="track" title="تتبع الطلب">⌁</button>
+            <button class="ghost-btn" data-action="chooseType">نوع الطلب</button>
             <button class="ghost-btn" data-action="home">المنيو</button>
           </div>
         </div>
@@ -109,7 +237,7 @@
       <section class="page">
         <div class="hero">
           <h2>${escapeHtml(settings.restaurantName || "كباب الديرة")}</h2>
-          <p>سفري، صالة، ودليفري من المنيو المتزامن مباشرة.</p>
+          <p>${escapeHtml(settings.customerHeroText || "سفري، صالة، ودليفري من المنيو المتزامن مباشرة.")}</p>
           <div class="status-row">
             <span class="pill">${settings.isOpen ? "مفتوح الآن" : "مغلق الآن"}</span>
             <span class="pill">${escapeHtml(settings.workingHours || "")}</span>
@@ -118,7 +246,7 @@
         </div>
         ${state.firebaseError ? `<div class="notice error-notice">${escapeHtml(state.firebaseError)}</div>` : ""}
         ${state.message}
-        <div class="segment">
+        <div class="segment compact-segment">
           ${["takeaway:سفري", "dinein:صالة", "delivery:دليفري"].map(raw => {
             const [key, label] = raw.split(":");
             return `<button class="${state.orderType === key ? "active" : ""}" data-type="${key}">${label}</button>`;
@@ -129,6 +257,67 @@
       ${state.cart.length ? `<div class="cart-bar"><div class="cart-bar-inner"><button class="cart-button" data-action="checkout"><span>عرض السلة (${state.cart.reduce((a,b)=>a+b.quantity,0)})</span><span>${K.fmt(t.total)}</span></button></div></div>` : ""}
       ${renderItemDrawer()}
     `;
+  }
+
+  function WelcomeScreen(settings) {
+    const phones = (settings.phones || []).filter(Boolean).join(" - ");
+    return `<main class="welcome-screen">
+      <div class="cinema-bg" aria-hidden="true">
+        <div class="grill-fire"></div>
+        <div class="smoke smoke-one"></div>
+        <div class="smoke smoke-two"></div>
+        <div class="ember-field"></div>
+      </div>
+      <section class="welcome-content">
+        <div class="welcome-logo">
+          ${settings.logoUrl ? `<img src="${escapeHtml(settings.logoUrl)}" alt="">` : `<span>ك</span>`}
+        </div>
+        <p class="welcome-eyebrow">${settings.isOpen ? "مفتوح الآن 🔥" : "مغلق حالياً"}</p>
+        <h1>${escapeHtml(settings.restaurantName || "كباب الديرة")}</h1>
+        <h2>أطيب المشاوي العراقية 🔥</h2>
+        <p class="welcome-subtitle">اطلب وإنت مرتاح وين ما تكون ❤️</p>
+        <button class="start-order-btn" data-action="startOrder"><span>ابدأ الطلب</span></button>
+      </section>
+      <footer class="welcome-footer">
+        <span>${escapeHtml(phones || settings.whatsappNumber || "")}</span>
+        <div class="social-dots" aria-label="روابط التواصل">
+          <a href="${settings.whatsappNumber ? `https://wa.me/${escapeHtml(settings.whatsappNumber)}` : "#"}" target="_blank">واتساب</a>
+          <a href="#" aria-disabled="true">فيسبوك</a>
+          <a href="#" aria-disabled="true">إنستغرام</a>
+        </div>
+      </footer>
+    </main>`;
+  }
+
+  function OrderTypeSelector(settings) {
+    const cards = [
+      { key: "delivery", icon: "🛵", title: "دليفري", desc: "يوصلك لباب البيت بسرعة 🔥" },
+      { key: "dinein", icon: "🍽️", title: "تناول داخل المطعم", desc: "استمتع بأجواء الديرة والمشاوي الطازجة 🍢" },
+      { key: "takeaway", icon: "🚗", title: "سفري", desc: "اطلب وخذ طلبك بأسرع وقت 🚗" }
+    ];
+    return `<main class="order-type-screen">
+      <section class="order-type-hero">
+        <button class="ghost-btn intro-back" data-action="backWelcome">رجوع</button>
+        <div class="brand-mini">
+          ${settings.logoUrl ? `<img class="logo" src="${escapeHtml(settings.logoUrl)}" alt="">` : `<div class="logo">ك</div>`}
+          <div><strong>${escapeHtml(settings.restaurantName || "كباب الديرة")}</strong><span>${settings.isOpen ? "مفتوح الآن 🔥" : "مغلق حالياً"}</span></div>
+        </div>
+        <h1>وين ما تحب تاكل… إحنا جاهزين 😍</h1>
+        <p>دليفري 🛵 | صالة 🍽️ | سفري 🚗</p>
+        <div class="quick-info">
+          <span>مدة التوصيل حسب الطريق</span>
+          <span>داخل ${Number(settings.deliveryRadiusKm || 7)} كم</span>
+          <span>تبدأ من ${K.fmt(settings.deliveryFirstKmFee || settings.deliveryFee || 1000)}</span>
+        </div>
+      </section>
+      <section class="order-type-cards">
+        ${cards.map(card => `<button class="order-type-card ${state.orderType === card.key ? "selected" : ""}" data-type="${card.key}">
+          <span class="type-icon">${card.icon}</span>
+          <strong>${card.title}</strong>
+          <small>${card.desc}</small>
+        </button>`).join("")}
+      </section>
+    </main>`;
   }
 
   function renderCategories() {
@@ -179,9 +368,19 @@
               <label>خط العرض<input data-customer="lat" value="${escapeHtml(state.customer.lat)}" placeholder="مثال 33.355"></label>
               <label>خط الطول<input data-customer="lng" value="${escapeHtml(state.customer.lng)}" placeholder="مثال 44.336"></label>
             </div>
-            <label>رابط Google Maps<input data-customer="mapsUrl" value="${escapeHtml(state.customer.mapsUrl)}"></label>
-            <button class="ghost-btn" data-action="geo">تحديد موقعي</button>
-            ${t.distance ? `<div class="notice">المسافة التقريبية ${t.distance.toFixed(2)} كم</div>` : ""}
+            <label>رابط Google Maps<input data-customer="mapsUrl" value="${escapeHtml(state.customer.mapsUrl)}" placeholder="الصق رابط الموقع وسيتم استخراج الإحداثيات"></label>
+            <div class="row-actions">
+              <button class="ghost-btn" data-action="geo">تحديد موقعي</button>
+              <button class="ghost-btn" data-action="calculateRoute">حساب أجرة التوصيل</button>
+            </div>
+            ${state.routeLoading ? `<div class="notice">جاري حساب المسافة الفعلية عبر الطرق...</div>` : ""}
+            ${state.routeError ? `<div class="error-notice">${escapeHtml(state.routeError)}</div>` : ""}
+            ${t.distance ? `<div class="delivery-route-card">
+              <strong>المسافة الفعلية عبر الطرق: ${t.distance.toFixed(2)} كم</strong>
+              <span>مدة التوصيل التقريبية: ${t.durationMin || "-"} دقيقة</span>
+              <span>أجور التوصيل: ${K.fmt(t.deliveryFee)}</span>
+              ${t.rawDeliveryFee && t.rawDeliveryFee !== t.roundedDeliveryFee ? `<span>قبل التقريب: ${K.fmt(t.rawDeliveryFee)}</span>` : ""}
+            </div>` : ""}
           ` : ""}
           <button class="primary-btn" data-action="sendOrder" ${state.isSending ? "disabled" : ""}>${state.isSending ? "جاري إرسال الطلب..." : "إرسال الطلب إلى المطعم"}</button>
           ${state.settings.whatsappEnabled ? `<button class="success-btn" data-action="whatsapp">إرسال نسخة واتساب</button>` : ""}
@@ -232,7 +431,14 @@
     if (state.orderType === "delivery") {
       if (!state.settings.deliveryEnabled) return setMessage("الدليفري غير متاح حاليًا.", "error-notice");
       if (!state.customer.address.trim()) return setMessage("أدخل عنوان التوصيل.", "error-notice");
-      if (t.distance && t.distance > Number(state.settings.deliveryRadiusKm || 7)) return setMessage(`موقعك خارج نطاق التوصيل (${state.settings.deliveryRadiusKm} كم).`, "error-notice");
+      if (!validCoords(state.customer.lat, state.customer.lng)) return setMessage("حدد موقعك على الخريطة أو أدخل الإحداثيات قبل إرسال الطلب.", "error-notice");
+      if (!state.route?.distanceKm) {
+        await requestRoute();
+        const updated = totals();
+        if (!updated.distance) return setMessage("تعذر حساب مسافة الطريق. تحقق من إعدادات الخرائط أو الموقع.", "error-notice");
+      }
+      const checkedTotals = totals();
+      if (checkedTotals.distance > Number(state.settings.deliveryRadiusKm || 7)) return setMessage("عذرًا، موقعك خارج نطاق التوصيل المتاح.", "error-notice");
     }
     if (!db) return setMessage("أضف إعدادات Firebase حتى يتم حفظ الطلب في Firestore.", "error-notice");
 
@@ -240,15 +446,22 @@
     state.message = `<div class="notice">جاري إرسال الطلب إلى المطعم...</div>`;
     render();
     try {
+      const finalTotals = totals();
       const payload = {
         customer: { ...state.customer },
         orderType: state.orderType,
         tableNumber: state.orderType === "dinein" ? state.tableNumber : "",
         items: state.cart,
-        subtotal: t.subtotal,
-        deliveryFee: t.deliveryFee,
-        total: t.total,
-        distanceKm: t.distance || 0,
+        subtotal: finalTotals.subtotal,
+        deliveryFee: finalTotals.deliveryFee,
+        rawDeliveryFee: finalTotals.rawDeliveryFee,
+        roundedDeliveryFee: finalTotals.roundedDeliveryFee,
+        roundingMethod: finalTotals.roundingMethod,
+        total: finalTotals.total,
+        distanceKm: finalTotals.distance || 0,
+        routeDurationMin: finalTotals.durationMin || 0,
+        routeProvider: state.route?.provider || "",
+        routeGeometry: state.route?.routeGeometry || null,
         status: "جديد",
         source: window.matchMedia("(display-mode: standalone)").matches ? "APK / PWA" : "صفحة الزبون",
         paymentStatus: "دفع عند الاستلام",
@@ -263,7 +476,7 @@
       try {
         await db.collection("public_order_status").doc(doc.id).set({
         status: "جديد",
-        total: t.total,
+        total: finalTotals.total,
         orderType: state.orderType,
         createdAtMs: payload.createdAtMs,
         updatedAtMs: Date.now()
@@ -325,6 +538,7 @@
       state.settings = { ...K.settingsSeed, ...(d.exists ? d.data() : {}) };
       localStorage.setItem("kd_cached_settings", JSON.stringify(state.settings));
       render();
+      if (state.orderType === "delivery") scheduleRouteCalculation();
     }, () => {
       state.firebaseError = "تعذر قراءة إعدادات المطعم من Firebase. راجع Firestore Rules في ملف README.";
       render();
@@ -343,11 +557,28 @@
   app.addEventListener("click", async event => {
     const el = event.target.closest("[data-action],[data-type],[data-category],[data-item],[data-add],[data-inc],[data-dec]");
     if (!el) return;
+    if (el.dataset.action === "startOrder") {
+      state.screen = "orderType";
+      render();
+      return;
+    }
+    if (el.dataset.action === "backWelcome") {
+      state.screen = "welcome";
+      render();
+      return;
+    }
+    if (el.dataset.action === "chooseType") {
+      state.screen = "orderType";
+      render();
+      return;
+    }
     if (el.dataset.type) {
       state.orderType = el.dataset.type;
       if (state.orderType === "dinein") state.cart = state.cart.filter(i => i.categoryId !== "weight");
+      state.screen = "menu";
       state.view = "categories";
       render();
+      if (state.orderType === "delivery") scheduleRouteCalculation();
     }
     if (el.dataset.category) { state.selectedCategory = el.dataset.category; state.view = "items"; render(); }
     if (el.dataset.item) { state.selectedItem = state.items.find(i => i.id === el.dataset.item); render(); }
@@ -387,12 +618,25 @@
       state.customer.lng = pos.coords.longitude.toFixed(6);
       state.customer.mapsUrl = `https://maps.google.com/?q=${state.customer.lat},${state.customer.lng}`;
       render();
+      scheduleRouteCalculation();
     }, () => setMessage("لم نتمكن من قراءة الموقع. يمكنك إدخال الإحداثيات يدويًا.", "error-notice"));
+    if (el.dataset.action === "calculateRoute") requestRoute();
   });
 
   app.addEventListener("input", event => {
     if (event.target.dataset.customer) {
       state.customer[event.target.dataset.customer] = event.target.value;
+      if (event.target.dataset.customer === "mapsUrl") {
+        const coords = parseMapsLink(event.target.value);
+        if (coords) {
+          state.customer.lat = coords.lat;
+          state.customer.lng = coords.lng;
+        }
+      }
+      if (["lat", "lng", "mapsUrl"].includes(event.target.dataset.customer)) {
+        state.route = null;
+        scheduleRouteCalculation();
+      }
       save();
     }
     if ("table" in event.target.dataset) {
