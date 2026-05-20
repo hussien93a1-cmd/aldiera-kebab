@@ -379,7 +379,7 @@
           </div>
           <button class="warning-btn offer-btn" data-item="${item.id}">إضافة العرض إلى السلة</button>
         </article>` : `<article class="item-card">
-          <div>
+          <div class="item-main">
             <h3>${escapeHtml(item.name)}</h3>
             <p class="muted">${escapeHtml(item.description || "اختر الحجم أو الخيار المناسب")}</p>
           </div>
@@ -387,7 +387,7 @@
             <span class="muted">يبدأ من</span>
             <strong class="price">${K.fmt(price)}</strong>
           </div>
-          <button class="item-select-btn" data-item="${item.id}">اختيار</button>
+          <button class="item-select-btn ${item.available === false ? "disabled" : ""}" data-item="${item.id}" ${item.available === false ? "disabled" : ""}>${item.available === false ? "غير متوفر" : "اختيار"}</button>
         </article>`;
       }).join("") : `<div class="notice">لا توجد أصناف متاحة في هذا القسم حاليًا.</div>`}</div>`;
   }

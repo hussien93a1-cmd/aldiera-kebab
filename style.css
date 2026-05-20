@@ -790,23 +790,69 @@ th { background: #fff7ed; font-weight: 900; color: #7c2d12; }
 }
 .category-card.offer .category-icon { background: rgba(255,255,255,.25); color: #fff; }
 .item-card {
-  grid-template-columns: minmax(0, 1fr) auto 112px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto) 112px;
+  grid-template-areas: "info price action";
+  align-items: center;
+  gap: 18px;
+  min-height: 112px;
+  height: auto;
   border-radius: 28px;
-  padding: 18px;
+  padding: 20px;
   background: #fff;
-  border: 1px solid #f5f5f4;
+  border: 1px solid rgba(249, 115, 22, .16);
   box-shadow: 0 12px 28px rgba(120,53,15,.07);
 }
-.item-price-block { display: grid; justify-items: end; gap: 2px; white-space: nowrap; }
-.item-select-btn {
+.item-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 38px rgba(120,53,15,.1);
+  border-color: rgba(249, 115, 22, .3);
+}
+.item-card:active { transform: scale(.99); }
+.item-card > .item-main { grid-area: info !important; min-width: 0; display: grid; gap: 7px; }
+.item-main h3 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.35;
+  font-weight: 900;
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+.item-main p {
+  margin: 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.item-card > .item-price-block {
+  grid-area: price !important;
+  display: grid;
+  justify-items: start;
+  align-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  min-width: 118px;
+}
+.item-price-block .muted { font-size: 12px; font-weight: 800; }
+.item-price-block .price { font-size: 18px; line-height: 1.2; }
+.item-card > .item-select-btn {
+  grid-area: action !important;
   min-height: 48px;
+  width: 100%;
   border-radius: 18px;
   background: #fff7ed;
   color: #ea580c;
   font-weight: 900;
   border: 2px solid #ffedd5;
+  transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
 }
+.item-select-btn:hover { background: #ea580c; color: #fff; box-shadow: 0 12px 24px rgba(234,88,12,.18); }
 .item-select-btn:active { transform: scale(.97); }
+.item-select-btn.disabled {
+  background: #f5f5f4;
+  color: #78716c;
+  border-color: #e7e5e4;
+  box-shadow: none;
+  cursor: not-allowed;
+}
 .deera-offer-card {
   display: grid;
   grid-template-columns: 1fr;
@@ -919,9 +965,14 @@ th { background: #fff7ed; font-weight: 900; color: #7c2d12; }
   .category-card { min-height: 138px; padding: 16px 12px; border-radius: 28px; }
   .category-card strong { font-size: 16px; }
   .category-card span:not(.category-icon) { font-size: 12px; }
-  .item-card { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; gap: 12px; }
-  .item-card > div:not(.item-photo), .item-card > button { grid-area: auto; }
-  .item-price-block { justify-items: start; }
+  .item-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "info" "price" "action";
+    gap: 14px;
+    min-height: 0;
+    padding: 18px;
+  }
+  .item-price-block { justify-items: start; min-width: 0; }
   .item-select-btn { width: 100%; }
 }
 

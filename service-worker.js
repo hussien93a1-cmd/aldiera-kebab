@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = "kabab-aldeera-v10";
+﻿const CACHE_NAME = "kabab-aldeera-v12";
 const ASSETS = [
   "./",
   "./index.html",
