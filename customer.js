@@ -12,7 +12,7 @@
     cart: read("kd_customer_cart", []),
     customer: read("kd_customer_data", { name: "", phone: "", address: "", lat: "", lng: "", mapsUrl: "" }),
     orderType: localStorage.getItem("kd_order_type") || "takeaway",
-    screen: "welcome",
+    screen: "orderType",
     tableNumber: localStorage.getItem("kd_table_number") || "",
     view: "categories",
     selectedCategory: "",
@@ -234,38 +234,63 @@
         <div class="header-inner">
           <div class="brand">
             ${settings.logoUrl ? `<img class="logo" src="${escapeHtml(settings.logoUrl)}" alt="">` : `<div class="logo">ك</div>`}
-            <div><h1>${escapeHtml(settings.restaurantName || "كباب الديرة")}</h1><p>${escapeHtml(settings.address || "")}</p></div>
+            <div><h1>${escapeHtml(settings.restaurantName || "كباب الديرة")}</h1><p>${settings.isOpen ? "مفتوح الآن 🔥" : "مغلق حالياً"} · ${escapeHtml(settings.address || "")}</p></div>
           </div>
           <div class="header-actions">
+            <button class="icon-btn" data-action="back" title="رجوع">‹</button>
             <button class="icon-btn" data-action="track" title="تتبع الطلب">⌁</button>
             <button class="ghost-btn" data-action="chooseType">نوع الطلب</button>
-            <button class="ghost-btn" data-action="home">المنيو</button>
           </div>
         </div>
       </header>
       <section class="page">
-        <div class="hero">
-          <h2>${escapeHtml(settings.restaurantName || "كباب الديرة")}</h2>
-          <p>${escapeHtml(settings.customerHeroText || "سفري، صالة، ودليفري من المنيو المتزامن مباشرة.")}</p>
-          <div class="status-row">
-            <span class="pill">${settings.isOpen ? "مفتوح الآن" : "مغلق الآن"}</span>
-            <span class="pill">${escapeHtml(settings.workingHours || "")}</span>
-            <span class="pill">النطاق ${Number(settings.deliveryRadiusKm || 7)} كم</span>
-          </div>
-        </div>
         ${state.firebaseError ? `<div class="notice error-notice">${escapeHtml(state.firebaseError)}</div>` : ""}
         ${state.message}
-        <div class="segment compact-segment">
-          ${["takeaway:سفري", "dinein:صالة", "delivery:دليفري"].map(raw => {
-            const [key, label] = raw.split(":");
-            return `<button class="${state.orderType === key ? "active" : ""}" data-type="${key}">${label}</button>`;
-          }).join("")}
-        </div>
         ${state.view === "items" ? renderItems() : state.view === "checkout" ? renderCheckout(t) : state.view === "track" ? renderTrack() : renderCategories()}
       </section>
-      ${state.cart.length ? `<div class="cart-bar"><div class="cart-bar-inner"><button class="cart-button" data-action="checkout"><span>عرض السلة (${state.cart.reduce((a,b)=>a+b.quantity,0)})</span><span>${K.fmt(t.total)}</span></button></div></div>` : ""}
+      ${state.cart.length ? `<div class="cart-bar"><div class="cart-bar-inner"><button class="cart-button" data-action="checkout"><span class="cart-count">${state.cart.reduce((a,b)=>a+b.quantity,0)}</span><span>السلة</span><strong>${K.fmt(t.total)}</strong></button></div></div>` : ""}
       ${renderItemDrawer()}
     `;
+  }
+
+  function orderTypeLabel(type) {
+    return { delivery: "دليفري", dinein: "داخل المطعم", takeaway: "سفري" }[type] || "سفري";
+  }
+
+  function orderTypeCards() {
+    return [
+      { key: "takeaway", icon: "🚗", title: "سفري", desc: "اطلب وخذ طلبك بأسرع وقت" },
+      { key: "dinein", icon: "🍽️", title: "تناول داخل المطعم", desc: "استمتع بأجواء الديرة والمشاوي الطازجة" },
+      { key: "delivery", icon: "🛵", title: "دليفري", desc: "يوصلك لباب البيت بسرعة" }
+    ];
+  }
+
+  function categoryIcon(category) {
+    const icons = {
+      offers: "🔥",
+      nafarat: "🔥",
+      weight: "📦",
+      sandwiches: "🥙",
+      drinks: "☕",
+      extras: "➕"
+    };
+    return icons[category.id] || (category.isOffers ? "🔥" : "🍢");
+  }
+
+  function renderInlineOrderTypeCards(settings) {
+    return `<section class="order-mode-section">
+      <div class="section-title">
+        <div><h2>اختر طريقة الطلب</h2><p>دليفري، صالة، أو سفري بخطوة واحدة.</p></div>
+        <span>${Number(settings.deliveryRadiusKm || 7)} كم</span>
+      </div>
+      <div class="order-mode-grid">
+        ${orderTypeCards().map(card => `<button class="order-mode-card ${state.orderType === card.key ? "active" : ""}" data-type="${card.key}">
+          <span>${card.icon}</span>
+          <strong>${card.title}</strong>
+          <small>${card.desc}</small>
+        </button>`).join("")}
+      </div>
+    </section>`;
   }
 
   function WelcomeScreen(settings) {
@@ -299,41 +324,36 @@
   }
 
   function OrderTypeSelector(settings) {
-    const cards = [
-      { key: "delivery", icon: "🛵", title: "دليفري", desc: "يوصلك لباب البيت بسرعة 🔥" },
-      { key: "dinein", icon: "🍽️", title: "تناول داخل المطعم", desc: "استمتع بأجواء الديرة والمشاوي الطازجة 🍢" },
-      { key: "takeaway", icon: "🚗", title: "سفري", desc: "اطلب وخذ طلبك بأسرع وقت 🚗" }
-    ];
-    return `<main class="order-type-screen">
+    const cards = orderTypeCards();
+    return `<main class="order-type-screen old-order-screen">
       <section class="order-type-hero">
-        <button class="ghost-btn intro-back" data-action="backWelcome">رجوع</button>
-        <div class="brand-mini">
-          ${settings.logoUrl ? `<img class="logo" src="${escapeHtml(settings.logoUrl)}" alt="">` : `<div class="logo">ك</div>`}
-          <div><strong>${escapeHtml(settings.restaurantName || "كباب الديرة")}</strong><span>${settings.isOpen ? "مفتوح الآن 🔥" : "مغلق حالياً"}</span></div>
+        <div class="old-order-panel">
+          <div class="old-logo">${settings.logoUrl ? `<img src="${escapeHtml(settings.logoUrl)}" alt="">` : "🔥"}</div>
+          <h1>كباب الديرة</h1>
+          <p>اختر طريقة الطلب للمتابعة</p>
+          <div class="order-type-cards">
+            ${cards.map((card, index) => `<button class="order-type-card order-type-${card.key} ${state.orderType === card.key ? "selected" : ""}" data-type="${card.key}" style="--delay:${index * 70}ms">
+              <span class="type-icon">${card.icon}</span>
+              <span class="type-copy"><strong>${card.title}</strong><small>${card.desc}</small></span>
+              <span class="type-arrow">‹</span>
+            </button>`).join("")}
+          </div>
         </div>
-        <h1>وين ما تحب تاكل… إحنا جاهزين 😍</h1>
-        <p>دليفري 🛵 | صالة 🍽️ | سفري 🚗</p>
-        <div class="quick-info">
-          <span>مدة التوصيل حسب الطريق</span>
-          <span>داخل ${Number(settings.deliveryRadiusKm || 7)} كم</span>
-          <span>تبدأ من ${K.fmt(settings.deliveryFirstKmFee || settings.deliveryFee || 1000)}</span>
-        </div>
-      </section>
-      <section class="order-type-cards">
-        ${cards.map(card => `<button class="order-type-card ${state.orderType === card.key ? "selected" : ""}" data-type="${card.key}">
-          <span class="type-icon">${card.icon}</span>
-          <strong>${card.title}</strong>
-          <small>${card.desc}</small>
-        </button>`).join("")}
       </section>
     </main>`;
   }
 
   function renderCategories() {
     const categories = activeCategories();
-    return `<div class="toolbar"><h2>اختر القسم</h2><span class="muted">التحديثات تظهر مباشرة</span></div>
+    return `<div class="old-welcome-hero">
+        <div class="old-hero-icon">🍢</div>
+        <h2>مرحباً بكم</h2>
+        <p>اختر القسم واطلب أشهى مشويات كباب الديرة</p>
+      </div>
+      <div class="toolbar"><h2>اختر القسم</h2><span class="muted">التحديثات تظهر مباشرة</span></div>
       <div class="category-grid">${categories.length ? categories.map(c => `
         <button class="category-card ${c.isOffers ? "offer" : ""}" data-category="${c.id}">
+          <span class="category-icon">${categoryIcon(c)}</span>
           <strong>${c.isOffers ? "🔥 " : ""}${escapeHtml(c.name)}</strong>
           <span>${escapeHtml(c.details || "")}</span>
         </button>`).join("") : `<div class="notice">لا توجد فئات ظاهرة. تأكد من لوحة التحكم أن الفئة مفعلة وغير مخفية، أو ارفع البيانات الأولية من تبويب النسخ الاحتياطي.</div>`}</div>`;
@@ -349,14 +369,25 @@
       <div class="item-list">${items.length ? items.map(item => {
         const price = itemPrice(item);
         const off = K.percentOff(Number(item.oldPrice || 0), price);
-        return `<article class="item-card ${item.isOffer ? "offer-card" : ""}">
-          <div class="item-photo">${item.imageUrl ? `<img src="${escapeHtml(item.imageUrl)}" alt="">` : "🍢"}</div>
+        return item.isOffer ? `<article class="item-card offer-card deera-offer-card">
+          <div>
+            <span class="offer-pill">🔥 خصم ${off}%</span>
+            <h3>${escapeHtml(item.name)}</h3>
+            <p>${escapeHtml(item.description || "عرض خاص ومميز من كباب الديرة")}</p>
+            <div class="offer-line"><span>السعر القديم</span><strong class="strike">${K.fmt(item.oldPrice || 0)}</strong></div>
+            <div class="offer-line"><span>السعر الجديد</span><strong>${K.fmt(price)}</strong></div>
+          </div>
+          <button class="warning-btn offer-btn" data-item="${item.id}">إضافة العرض إلى السلة</button>
+        </article>` : `<article class="item-card">
           <div>
             <h3>${escapeHtml(item.name)}</h3>
-            <p class="${item.isOffer ? "" : "muted"}">${escapeHtml(item.description || "اختر الحجم أو الخيار المناسب")}</p>
-            ${item.isOffer && item.oldPrice ? `<p><span class="strike">${K.fmt(item.oldPrice)}</span> <span class="price">${K.fmt(price)}</span> <span class="pill">${off}% خصم</span></p>` : `<p class="price">يبدأ من ${K.fmt(price)}</p>`}
+            <p class="muted">${escapeHtml(item.description || "اختر الحجم أو الخيار المناسب")}</p>
           </div>
-          <button class="${item.isOffer ? "warning-btn" : "primary-btn"}" data-item="${item.id}">اختيار</button>
+          <div class="item-price-block">
+            <span class="muted">يبدأ من</span>
+            <strong class="price">${K.fmt(price)}</strong>
+          </div>
+          <button class="item-select-btn" data-item="${item.id}">اختيار</button>
         </article>`;
       }).join("") : `<div class="notice">لا توجد أصناف متاحة في هذا القسم حاليًا.</div>`}</div>`;
   }
