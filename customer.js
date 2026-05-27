@@ -233,6 +233,9 @@
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m]));
   }
+  function cssUrl(value) {
+    return String(value || "").replace(/['")\\]/g, "");
+  }
 
   function render() {
     save();
@@ -263,6 +266,7 @@
           </div>
         </div>
       </header>
+      ${renderAnnouncement(settings)}
       <section class="page">
         ${state.firebaseError ? `<div class="notice error-notice">${escapeHtml(state.firebaseError)}</div>` : ""}
         ${state.message}
@@ -275,6 +279,19 @@
 
   function orderTypeLabel(type) {
     return { delivery: "دليفري", dinein: "داخل المطعم", takeaway: "سفري" }[type] || "سفري";
+  }
+
+  function renderAnnouncement(settings) {
+    if (!settings.announcementEnabled || (!settings.announcementText && !settings.announcementImageUrl)) return "";
+    return `<section class="announcement-banner">
+      <div class="announcement-inner">
+        ${settings.announcementImageUrl ? `<img src="${escapeHtml(settings.announcementImageUrl)}" alt="">` : `<div class="announcement-icon">✨</div>`}
+        <div>
+          ${settings.announcementTitle ? `<strong>${escapeHtml(settings.announcementTitle)}</strong>` : ""}
+          ${settings.announcementText ? `<p>${escapeHtml(settings.announcementText)}</p>` : ""}
+        </div>
+      </div>
+    </section>`;
   }
 
   function orderTypeCards() {
@@ -295,6 +312,21 @@
       extras: "➕"
     };
     return icons[category.id] || (category.isOffers ? "🔥" : "🍢");
+  }
+
+  function categoryDescription(category) {
+    const fallback = {
+      weight: "كباب بالوزن وتحضير طازج حسب طلبك",
+      nafarat: "نفرات مشوية على الفحم بطعم عراقي أصيل",
+      cold: "مشويات باردة ومقبلات تكمل سفرتك",
+      sandwiches: "لفات سريعة ومشبعة بنكهة الديرة",
+      extras: "إضافات ومقبلات ومشروبات للطلب"
+    };
+    return category.details || fallback[category.id] || (category.isOffers ? "عروض مختارة لفترة محدودة" : "أصناف مختارة من منيو كباب الديرة");
+  }
+
+  function categoryItemCount(categoryId) {
+    return activeItems(categoryId).length;
   }
 
   function renderInlineOrderTypeCards(settings) {
@@ -365,17 +397,18 @@
 
   function renderCategories() {
     const categories = activeCategories();
-    return `<div class="old-welcome-hero">
-        <div class="old-hero-icon">🍢</div>
-        <h2>مرحباً بكم</h2>
-        <p>اختر القسم واطلب أشهى مشويات كباب الديرة</p>
-      </div>
+    return `<div class="category-note-bar">${escapeHtml(state.settings.customerHeroText || "اختر القسم واطلب أشهى مشويات كباب الديرة")}</div>
       <div class="toolbar"><h2>اختر القسم</h2><span class="muted">التحديثات تظهر مباشرة</span></div>
       <div class="category-grid">${categories.length ? categories.map(c => `
-        <button class="category-card ${c.isOffers ? "offer" : ""}" data-category="${c.id}">
-          <span class="category-icon">${categoryIcon(c)}</span>
-          <strong>${c.isOffers ? "🔥 " : ""}${escapeHtml(c.name)}</strong>
-          <span>${escapeHtml(c.details || "")}</span>
+        <button class="category-card luxury-category-card ${c.isOffers ? "offer" : ""}" data-category="${c.id}">
+          <span class="category-image" ${c.imageUrl ? `style="background-image:url('${cssUrl(c.imageUrl)}')"` : ""}></span>
+          <span class="category-content">
+            <span class="category-icon">${categoryIcon(c)}</span>
+            <strong>${c.isOffers ? "🔥 " : ""}${escapeHtml(c.name)}</strong>
+            <small>${escapeHtml(categoryDescription(c))}</small>
+            <span class="category-badge">${categoryItemCount(c.id)} صنف</span>
+          </span>
+          <span class="category-arrow">‹</span>
         </button>`).join("") : `<div class="notice">لا توجد فئات ظاهرة. تأكد من لوحة التحكم أن الفئة مفعلة وغير مخفية، أو ارفع البيانات الأولية من تبويب النسخ الاحتياطي.</div>`}</div>`;
   }
 

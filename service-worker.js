@@ -1,9 +1,12 @@
-const CACHE_NAME = "kabab-aldeera-v14";
+const CACHE_NAME = "kabab-aldeera-v22";
 const ASSETS = [
   "./",
   "./index.html",
+  "./admin.html",
+  "./login.html",
   "./style.css",
   "./customer.js",
+  "./admin.js",
   "./firebase-config.js",
   "./manifest.json",
   "./icons/icon-192.svg",
@@ -26,5 +29,17 @@ self.addEventListener("fetch", event => {
       caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(() => {});
       return response;
     }).catch(() => caches.match(event.request).then(cached => cached || caches.match("./index.html")))
+  );
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || "./admin.html", self.location.origin).href;
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then(windowClients => {
+      const existing = windowClients.find(client => client.url.includes("admin.html") || client.url.includes("login.html"));
+      if (existing) return existing.focus();
+      return clients.openWindow(targetUrl);
+    })
   );
 });

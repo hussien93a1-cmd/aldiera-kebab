@@ -70,9 +70,9 @@
     alarmMuted: false,
     alarmSettings: (() => {
       try {
-        return JSON.parse(localStorage.getItem("kd_alarm_settings")) || { sound: "urgent", volume: 0.9, browserNotifications: false };
+        return { sound: "urgent", volume: 0.9, browserNotifications: true, ...(JSON.parse(localStorage.getItem("kd_alarm_settings")) || {}) };
       } catch (error) {
-        return { sound: "urgent", volume: 0.9, browserNotifications: false };
+        return { sound: "urgent", volume: 0.9, browserNotifications: true };
       }
     })(),
     dateFrom: "",
@@ -82,6 +82,8 @@
   let audioReady = true;
   let alarmCtx = null;
   let alarmTimer = null;
+  const baseTitle = document.title;
+  let titleTimer = null;
 
   const tabs = [
     ["dashboard", "الرئيسية"],
@@ -146,8 +148,33 @@
     return patterns[state.alarmSettings.sound] || patterns.urgent;
   }
   function saveAlarmSettings() {
+    state.alarmSettings.browserNotifications = true;
     localStorage.setItem("kd_alarm_settings", JSON.stringify(state.alarmSettings));
     localStorage.setItem("kd_alarm_muted", "0");
+  }
+  function requestBrowserNotificationPermission() {
+    if (!("Notification" in window)) return;
+    state.alarmSettings.browserNotifications = true;
+    saveAlarmSettings();
+    if (Notification.permission === "default") {
+      Notification.requestPermission().then(permission => {
+        state.alarmSettings.browserNotifications = permission === "granted";
+        saveAlarmSettings();
+      }).catch(() => {});
+    }
+  }
+  function startTitleAlert() {
+    if (titleTimer) return;
+    titleTimer = setInterval(() => {
+      document.title = document.title === baseTitle ? "طلب جديد - كباب الديرة" : baseTitle;
+    }, 900);
+  }
+  function stopTitleAlert() {
+    if (titleTimer) {
+      clearInterval(titleTimer);
+      titleTimer = null;
+    }
+    document.title = baseTitle;
   }
   function primeAudio() {
     if (alarmCtx) return;
@@ -157,6 +184,7 @@
       audioReady = true;
       state.alarmMuted = false;
       saveAlarmSettings();
+      requestBrowserNotificationPermission();
     } catch (error) {
       audioReady = true;
     }
@@ -189,6 +217,7 @@
     state.alarmMuted = false;
     saveAlarmSettings();
     primeAudio();
+    startTitleAlert();
     if (alarmTimer) return;
     beepOnce();
     alarmTimer = setInterval(beepOnce, 1250);
@@ -200,6 +229,7 @@
     }
     if (force) state.alarmMuted = false;
     saveAlarmSettings();
+    stopTitleAlert();
   }
   function enableOrderAudio() {
     audioReady = true;
@@ -218,12 +248,40 @@
     state.dismissedOrderPopups.delete(order.id);
     saveDismissedPopups();
     state.orderToast = `طلب جديد #${order.id.slice(0, 6)} من ${order.customer?.name || "زبون"}`;
-    if (state.alarmSettings.browserNotifications && "Notification" in window && Notification.permission === "granted") {
-      new Notification("طلب جديد - كباب الديرة", {
-        body: `${order.customer?.name || "زبون"} - ${K.fmt(order.total)}`,
-        tag: order.id
-      });
+    showBrowserOrderNotification(order);
+  }
+  function showBrowserOrderNotification(order) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    const title = "طلب جديد - كباب الديرة";
+    const options = {
+      body: `${order.customer?.name || "زبون"} - ${orderTypeLabel(order.orderType)} - ${K.fmt(order.total)}`,
+      tag: `order-${order.id}`,
+      renotify: true,
+      requireInteraction: true,
+      icon: "icons/icon-192.svg",
+      badge: "icons/icon-192.svg",
+      vibrate: [300, 120, 300],
+      data: { orderId: order.id, url: "admin.html" }
+    };
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.ready
+        .then(reg => reg.showNotification(title, options))
+        .catch(() => {
+          const note = new Notification(title, options);
+          note.onclick = () => {
+            window.focus();
+            state.tab = "orders";
+            openOrderDetails(order.id);
+          };
+        });
+      return;
     }
+    const note = new Notification(title, options);
+    note.onclick = () => {
+      window.focus();
+      state.tab = "orders";
+      openOrderDetails(order.id);
+    };
   }
   function checkPendingOrders(newOrders = []) {
     if (newOrders.length) notifyNewOrder(newOrders[0]);
@@ -355,7 +413,6 @@
       <div class="panel-head">
         <div><h3>طلبات الأونلاين / Online Orders</h3><p class="muted">طلبات صفحة الزبون و APK تظهر هنا لحظيًا</p></div>
         <div class="row-actions">
-          <button class="ghost-btn" data-action="requestNotifications">إشعارات المتصفح</button>
           <button class="ghost-btn" data-action="archiveDone">أرشفة المكتملة</button>
         </div>
       </div>
@@ -665,7 +722,7 @@
     return `<h3>${c.id ? "تعديل فئة" : "إضافة فئة"}</h3><form class="stack" data-form="category">
       <input id="categoryId" type="hidden" value="${esc(c.id || "")}">
       <div class="form-grid"><label>اسم الفئة<input id="categoryName" value="${esc(c.name || "")}" required></label><label>الترتيب<input id="categoryOrder" type="number" value="${esc(c.order || 1)}"></label></div>
-      <div class="form-grid"><label>الأيقونة<input id="categoryIcon" value="${esc(c.icon || "flame")}"></label><label>رابط الصورة<input id="categoryImage" value="${esc(c.imageUrl || "")}"></label></div>
+      <div class="form-grid"><label>الأيقونة<input id="categoryIcon" value="${esc(c.icon || "flame")}"></label><label>رابط الصورة<input id="categoryImage" value="${esc(c.imageUrl || "")}"></label><label>رفع صورة من الجهاز<input id="categoryImageFile" type="file" accept="image/*"></label></div>
       <label>الوصف<textarea id="categoryDetails">${esc(c.details || "")}</textarea></label>
       <div class="form-grid"><label><input id="categoryActive" type="checkbox" ${c.active !== false ? "checked" : ""}> مفعلة</label><label><input id="categoryHidden" type="checkbox" ${c.hidden ? "checked" : ""}> مخفية</label><label><input id="categoryOffers" type="checkbox" ${c.isOffers ? "checked" : ""}> فئة عروض</label></div>
       <button class="primary-btn" type="submit">حفظ الفئة</button>
@@ -755,7 +812,13 @@
       <div class="form-grid"><label>اسم المطعم<input id="setName" value="${esc(s.restaurantName)}"></label><label>الشعار URL<input id="setLogo" value="${esc(s.logoUrl)}"></label><label>العملة<input id="setCurrency" value="${esc(s.currency || K.currency)}"></label></div>
       <div class="form-grid"><label>الهاتف 1<input id="setPhone1" value="${esc((s.phones || [])[0] || "")}"></label><label>الهاتف 2<input id="setPhone2" value="${esc((s.phones || [])[1] || "")}"></label><label>واتساب<input id="setWhatsapp" value="${esc(s.whatsappNumber || "")}"></label></div>
       <label>العنوان<input id="setAddress" value="${esc(s.address || "")}"></label>
-      <label>جملة واجهة الزبون<input id="setCustomerHeroText" value="${esc(s.customerHeroText || "سفري، صالة، ودليفري من المنيو المتزامن مباشرة.")}"></label>
+      <label>شريط أعلى الأقسام<input id="setCustomerHeroText" value="${esc(s.customerHeroText || "اختر القسم واطلب أشهى مشويات كباب الديرة")}"></label>
+      <div class="panel banner-settings">
+        <h3>بانر أعلى صفحة الزبون</h3>
+        <div class="form-grid"><label><input id="setAnnouncementEnabled" type="checkbox" ${s.announcementEnabled ? "checked" : ""}> تفعيل البانر</label><label>عنوان البانر<input id="setAnnouncementTitle" value="${esc(s.announcementTitle || "")}" placeholder="مثال: تهنئة بمناسبة العيد"></label></div>
+        <label>نص البانر<textarea id="setAnnouncementText" placeholder="اكتب ملاحظة أو تهنئة دينية أو وطنية">${esc(s.announcementText || "")}</textarea></label>
+        <div class="form-grid"><label>رابط صورة البانر<input id="setAnnouncementImage" value="${esc(s.announcementImageUrl || "")}" placeholder="https://..."></label><label>رفع صورة<input id="setAnnouncementImageFile" type="file" accept="image/*"></label></div>
+      </div>
       <div class="form-grid"><label><input id="setOpen" type="checkbox" ${s.isOpen ? "checked" : ""}> المطعم مفتوح</label><label><input id="setWhatsappEnabled" type="checkbox" ${s.whatsappEnabled ? "checked" : ""}> إظهار واتساب كخيار إضافي</label><label><input id="setDeliveryEnabled" type="checkbox" ${s.deliveryEnabled ? "checked" : ""}> تفعيل الدليفري</label></div>
       <div class="form-grid"><label>أوقات الدوام<input id="setHours" value="${esc(s.workingHours || "")}"></label><label>الحد الأدنى<input id="setMinimum" type="number" value="${esc(s.minimumOrder || 0)}"></label><label>رسالة الإغلاق<input id="setClosed" value="${esc(s.closedMessage || "")}"></label></div>
       <div class="form-grid"><label>خط عرض المطعم<input id="setLat" type="number" step="any" value="${esc(s.restaurantLat || "")}"></label><label>خط طول المطعم<input id="setLng" type="number" step="any" value="${esc(s.restaurantLng || "")}"></label><label>منطقة المطعم<input id="setArea" value="${esc(s.restaurantArea || "")}"></label></div>
@@ -785,13 +848,15 @@
 
   async function saveCategory() {
     const id = val("categoryId") || K.id("cat");
+    const file = document.getElementById("categoryImageFile")?.files?.[0];
+    const imageUrl = file ? await K.uploadImage(file, "categories") : val("categoryImage");
     const activeInput = document.getElementById("categoryActive");
     const hiddenInput = document.getElementById("categoryHidden");
     const payload = {
       name: val("categoryName"),
       details: val("categoryDetails"),
       icon: val("categoryIcon"),
-      imageUrl: val("categoryImage"),
+      imageUrl,
       order: num("categoryOrder"),
       active: activeInput ? activeInput.checked : true,
       hidden: hiddenInput ? hiddenInput.checked : false,
@@ -882,6 +947,8 @@
   }
 
   async function saveSettings() {
+    const bannerFile = document.getElementById("setAnnouncementImageFile")?.files?.[0];
+    const announcementImageUrl = bannerFile ? await K.uploadImage(bannerFile, "settings") : val("setAnnouncementImage");
     await db.collection("settings").doc("main").set({
       restaurantName: val("setName"),
       logoUrl: val("setLogo"),
@@ -889,6 +956,10 @@
       whatsappNumber: val("setWhatsapp"),
       address: val("setAddress"),
       customerHeroText: val("setCustomerHeroText"),
+      announcementEnabled: checked("setAnnouncementEnabled"),
+      announcementTitle: val("setAnnouncementTitle"),
+      announcementText: val("setAnnouncementText"),
+      announcementImageUrl,
       isOpen: checked("setOpen"),
       whatsappEnabled: checked("setWhatsappEnabled"),
       deliveryEnabled: checked("setDeliveryEnabled"),
@@ -918,6 +989,10 @@
       whatsappNumber: val("setWhatsapp"),
       address: val("setAddress"),
       customerHeroText: val("setCustomerHeroText"),
+      announcementEnabled: checked("setAnnouncementEnabled"),
+      announcementTitle: val("setAnnouncementTitle"),
+      announcementText: val("setAnnouncementText"),
+      announcementImageUrl,
       isOpen: checked("setOpen"),
       whatsappEnabled: checked("setWhatsappEnabled"),
       deliveryEnabled: checked("setDeliveryEnabled"),
