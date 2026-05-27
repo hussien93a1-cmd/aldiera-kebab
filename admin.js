@@ -50,7 +50,15 @@
     editing: null,
     modal: "",
     selectedOrderId: "",
+    orderDetailsFull: false,
     orderToast: "",
+    dismissedOrderPopups: new Set((() => {
+      try {
+        return JSON.parse(localStorage.getItem("kd_dismissed_order_popups")) || [];
+      } catch (error) {
+        return [];
+      }
+    })()),
     orderFilters: {
       status: "all",
       type: "all",
@@ -59,7 +67,7 @@
       sort: "newest",
       lateOnly: false
     },
-    alarmMuted: localStorage.getItem("kd_alarm_muted") === "1",
+    alarmMuted: false,
     alarmSettings: (() => {
       try {
         return JSON.parse(localStorage.getItem("kd_alarm_settings")) || { sound: "urgent", volume: 0.9, browserNotifications: false };
@@ -71,7 +79,7 @@
     dateTo: ""
   };
   let lastNewOrderIds = new Set();
-  let audioReady = false;
+  let audioReady = true;
   let alarmCtx = null;
   let alarmTimer = null;
 
@@ -123,6 +131,12 @@
   function pendingNewOrders() {
     return state.orders.filter(isNewOrder);
   }
+  function saveDismissedPopups() {
+    localStorage.setItem("kd_dismissed_order_popups", JSON.stringify([...state.dismissedOrderPopups]));
+  }
+  function activePopupOrder() {
+    return pendingNewOrders().find(order => !state.dismissedOrderPopups.has(order.id));
+  }
   function alarmPattern() {
     const patterns = {
       urgent: [920, 1180, 920, 1380],
@@ -133,11 +147,28 @@
   }
   function saveAlarmSettings() {
     localStorage.setItem("kd_alarm_settings", JSON.stringify(state.alarmSettings));
-    localStorage.setItem("kd_alarm_muted", state.alarmMuted ? "1" : "0");
+    localStorage.setItem("kd_alarm_muted", "0");
+  }
+  function primeAudio() {
+    if (alarmCtx) return;
+    try {
+      alarmCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (alarmCtx.state === "suspended") alarmCtx.resume().catch(() => {});
+      audioReady = true;
+      state.alarmMuted = false;
+      saveAlarmSettings();
+    } catch (error) {
+      audioReady = true;
+    }
   }
   function beepOnce() {
-    if (!audioReady || state.alarmMuted) return;
-    alarmCtx = alarmCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (state.alarmMuted) state.alarmMuted = false;
+    try {
+      alarmCtx = alarmCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (alarmCtx.state === "suspended") alarmCtx.resume().catch(() => {});
+    } catch (error) {
+      return;
+    }
     const now = alarmCtx.currentTime;
     alarmPattern().forEach((freq, index) => {
       const osc = alarmCtx.createOscillator();
@@ -154,12 +185,10 @@
     });
   }
   function startOrderAlarm() {
-    if (!pendingNewOrders().length || state.alarmMuted) return;
-    if (!audioReady) {
-      state.orderToast = "المتصفح يحتاج تفعيل صوت التنبيهات مرة واحدة.";
-      render();
-      return;
-    }
+    if (!pendingNewOrders().length) return;
+    state.alarmMuted = false;
+    saveAlarmSettings();
+    primeAudio();
     if (alarmTimer) return;
     beepOnce();
     alarmTimer = setInterval(beepOnce, 1250);
@@ -169,7 +198,7 @@
       clearInterval(alarmTimer);
       alarmTimer = null;
     }
-    if (force) state.alarmMuted = true;
+    if (force) state.alarmMuted = false;
     saveAlarmSettings();
   }
   function enableOrderAudio() {
@@ -186,6 +215,8 @@
     beepOnce();
   }
   function notifyNewOrder(order) {
+    state.dismissedOrderPopups.delete(order.id);
+    saveDismissedPopups();
     state.orderToast = `طلب جديد #${order.id.slice(0, 6)} من ${order.customer?.name || "زبون"}`;
     if (state.alarmSettings.browserNotifications && "Notification" in window && Notification.permission === "granted") {
       new Notification("طلب جديد - كباب الديرة", {
@@ -276,7 +307,6 @@
         <h1>كباب الديرة</h1>
         <p>لوحة التحكم المتزامنة</p>
         <nav class="nav">${tabs.map(([key, label]) => `<button class="${state.tab === key ? "active" : ""}" data-tab="${key}">${label}</button>`).join("")}</nav>
-        <button class="ghost-btn" data-action="enableAudio">تفعيل تنبيه الطلبات</button>
         <button class="danger-btn" data-action="logout">تسجيل خروج</button>
       </aside>
       <section class="admin-main">
@@ -285,6 +315,7 @@
         ${state.modal}
         ${renderTab()}
       </section>
+      ${renderNewOrderPopup()}
       ${renderOrderDetailsModal()}
     `;
   }
@@ -324,8 +355,6 @@
       <div class="panel-head">
         <div><h3>طلبات الأونلاين / Online Orders</h3><p class="muted">طلبات صفحة الزبون و APK تظهر هنا لحظيًا</p></div>
         <div class="row-actions">
-          <button class="primary-btn ${pending ? "pulse-alert" : ""}" data-action="enableOrderAudio">تفعيل صوت التنبيهات ${pending ? `<span class="new-count">${pending}</span>` : ""}</button>
-          <button class="warning-btn" data-action="stopAlarm">إيقاف الصوت مؤقتًا</button>
           <button class="ghost-btn" data-action="requestNotifications">إشعارات المتصفح</button>
           <button class="ghost-btn" data-action="archiveDone">أرشفة المكتملة</button>
         </div>
@@ -347,7 +376,6 @@
           <option value="soft" ${state.alarmSettings.sound === "soft" ? "selected" : ""}>هادئ</option>
         </select></label>
         <label>مستوى الصوت<input type="range" min="0.1" max="1" step="0.1" value="${esc(state.alarmSettings.volume)}" data-alarm-setting="volume"></label>
-        <button class="ghost-btn" data-action="testAlarm">اختبار الصوت</button>
       </div>
       <div class="order-filters">
         <label>بحث<input data-order-filter="search" placeholder="رقم الطلب / الاسم / الهاتف" value="${esc(state.orderFilters.search)}"></label>
@@ -357,12 +385,13 @@
         <label>الترتيب<select data-order-filter="sort"><option value="newest" ${state.orderFilters.sort === "newest" ? "selected" : ""}>الأحدث</option><option value="oldest" ${state.orderFilters.sort === "oldest" ? "selected" : ""}>الأقدم</option><option value="highest" ${state.orderFilters.sort === "highest" ? "selected" : ""}>الأعلى قيمة</option></select></label>
         <label class="inline-check"><input type="checkbox" data-order-filter="lateOnly" ${state.orderFilters.lateOnly ? "checked" : ""}> الطلبات المتأخرة</label>
       </div>
-      ${renderOrderCards(live)}
+      <div class="order-status-board">${renderOrderStatusBoard(live)}</div>
     </section>`;
   }
 
   function statusClass(status = "جديد") {
     if (["new", "جديد"].includes(status)) return "new";
+    if (status === "قيد المراجعة") return "review";
     if (status === "مقبول") return "accepted";
     if (status === "قيد التحضير") return "preparing";
     if (status === "جاهز" || status === "تم التسليم") return "ready";
@@ -372,6 +401,45 @@
 
   function orderTypeLabel(type) {
     return { delivery: "دليفري", takeaway: "سفري", dinein: "صالة" }[type] || type || "غير محدد";
+  }
+
+  function renderNewOrderPopup() {
+    const order = activePopupOrder();
+    if (!order) return "";
+    return `<div class="new-order-popup" role="dialog" aria-modal="true">
+      <section class="floating-order-modal status-new">
+        <div class="popup-pulse"></div>
+        <div class="panel-head">
+          <div><span class="new-badge">طلب جديد</span><h2>#${esc(order.id.slice(0, 8))}</h2></div>
+          <button class="mini-btn" data-dismiss-order-popup="${order.id}">إغلاق مؤقت</button>
+        </div>
+        <div class="popup-order-summary">
+          <p><strong>الزبون:</strong> ${esc(order.customer?.name || "زبون")}</p>
+          <p><strong>الهاتف:</strong> ${esc(order.customer?.phone || "غير مسجل")}</p>
+          <p><strong>نوع الطلب:</strong> ${esc(orderTypeLabel(order.orderType))}</p>
+          <p><strong>المبلغ:</strong> ${K.fmt(order.total)}</p>
+          <p><strong>الوقت:</strong> ${orderTime(order).toLocaleString("ar-IQ")}</p>
+        </div>
+        <div class="row-actions popup-actions">
+          <button class="success-btn" data-accept-order="${order.id}">قبول الطلب</button>
+          <button class="ghost-btn" data-order-open="${order.id}">عرض التفاصيل</button>
+          <button class="danger-btn" data-reject-order="${order.id}">رفض الطلب</button>
+        </div>
+      </section>
+    </div>`;
+  }
+
+  function renderOrderStatusBoard(orders) {
+    const statuses = ["جديد", "قيد المراجعة", "مقبول", "قيد التحضير", "جاهز", "مع السائق", "تم التسليم", "مرفوض", "ملغي"];
+    const lanes = statuses.map(status => {
+      const group = orders.filter(order => (order.status || "جديد") === status || (status === "جديد" && order.status === "new"));
+      if (!group.length) return "";
+      return `<section class="status-lane status-${statusClass(status)}">
+        <div class="status-lane-head"><h4>${esc(status)}</h4><span>${group.length}</span></div>
+        ${renderOrderCards(group)}
+      </section>`;
+    }).join("");
+    return lanes || `<div class="notice">لا توجد طلبات واردة حاليًا.</div>`;
   }
 
   function renderOrderCards(orders) {
@@ -437,6 +505,48 @@
       ? `https://www.google.com/maps/dir/?api=1&destination=${order.customer.lat},${order.customer.lng}`
       : (order.customer?.mapsUrl || "");
   }
+  function customerLocationUrl(order) {
+    if (order.customer?.lat && order.customer?.lng) {
+      return `https://www.google.com/maps?q=${order.customer.lat},${order.customer.lng}`;
+    }
+    return order.customer?.mapsUrl || "";
+  }
+  function whatsappPhone(raw) {
+    let digits = String(raw || "").replace(/\D/g, "");
+    if (digits.startsWith("00")) digits = digits.slice(2);
+    if (digits.startsWith("0")) digits = `964${digits.slice(1)}`;
+    if (!digits.startsWith("964") && digits.length === 10) digits = `964${digits}`;
+    return digits;
+  }
+  function orderWhatsAppText(order) {
+    const location = customerLocationUrl(order);
+    const lines = [
+      `طلب #${order.id.slice(0, 8)}`,
+      `الزبون: ${order.customer?.name || ""}`,
+      `الهاتف: ${order.customer?.phone || ""}`,
+      `نوع الطلب: ${orderTypeLabel(order.orderType)}`,
+      `العنوان: ${order.customer?.address || order.tableNumber || ""}`,
+      location ? `موقع الزبون: ${location}` : "موقع الزبون: غير محدد",
+      "",
+      "الأصناف:"
+    ];
+    (order.items || []).forEach(item => {
+      lines.push(`- ${item.name || ""}${item.optionName ? ` / ${item.optionName}` : ""} × ${item.quantity || 1} = ${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}`);
+      if (item.addons) lines.push(`  الإضافات: ${item.addons}`);
+      if (item.notes) lines.push(`  ملاحظة: ${item.notes}`);
+    });
+    lines.push("");
+    if (order.notes) lines.push(`ملاحظات الطلب: ${order.notes}`);
+    lines.push(`المجموع الفرعي: ${K.fmt(order.subtotal || 0)}`);
+    lines.push(`التوصيل: ${K.fmt(order.deliveryFee || 0)}`);
+    lines.push(`الخصم: ${K.fmt(order.discount || 0)}`);
+    lines.push(`الإجمالي النهائي: ${K.fmt(order.total || 0)}`);
+    return lines.join("\n");
+  }
+  function orderWhatsAppUrl(order) {
+    const phone = whatsappPhone(order.customer?.phone || state.settings.whatsappNumber);
+    return phone ? `https://wa.me/${phone}?text=${encodeURIComponent(orderWhatsAppText(order))}` : "";
+  }
   function renderStatusTimeline(order) {
     const history = order.statusHistory || [];
     if (!history.length) {
@@ -449,7 +559,35 @@
     const order = selectedOrder();
     if (!order) return `<div id="adminModal" class="modal"></div>`;
     const mapsUrl = orderMapsUrl(order);
+    const locationUrl = customerLocationUrl(order);
+    const waUrl = orderWhatsAppUrl(order);
     const status = order.status || "جديد";
+    const orderItemsHtml = `<div class="order-lines order-lines-large">${(order.items || []).map(item => `<div class="order-line order-line-summary">
+      <div><strong>${esc(item.name)}</strong><p class="muted">${esc(item.optionName || "")}${item.addons ? ` - إضافات: ${esc(item.addons)}` : ""}</p>${item.notes ? `<p class="muted">ملاحظة: ${esc(item.notes)}</p>` : ""}</div>
+      ${item.available === false ? `<span class="late-badge">غير متوفر</span>` : ""}
+      <span>×${esc(item.quantity || 1)}</span>
+      <span>${K.fmt(item.price || 0)}</span>
+      <strong>${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}</strong>
+    </div>`).join("") || `<div class="notice">لا توجد أصناف داخل الطلب.</div>`}</div>`;
+    if (!state.orderDetailsFull) {
+      return `<div id="adminModal" class="modal open">
+        <section class="modal-card order-details-modal order-items-modal">
+          <div class="panel-head">
+            <div><h2>أصناف الطلب #${esc(order.id.slice(0, 8))}</h2><p class="muted">${esc(orderTypeLabel(order.orderType))} - ${K.fmt(order.total)}</p></div>
+            <button class="ghost-btn" data-action="closeOrderModal">إغلاق</button>
+          </div>
+          <div class="panel">
+            <h3>الأصناف المطلوبة</h3>
+            ${orderItemsHtml}
+          </div>
+          <div class="row-actions order-modal-actions">
+            <button class="primary-btn details-full-btn" data-show-full-details="${order.id}">إظهار التفاصيل الكاملة</button>
+            <button class="success-btn" data-accept-order="${order.id}">قبول الطلب</button>
+            <button class="danger-btn" data-reject-order="${order.id}">رفض الطلب</button>
+          </div>
+        </section>
+      </div>`;
+    }
     return `<div id="adminModal" class="modal open">
       <section class="modal-card order-details-modal">
         <div class="panel-head">
@@ -462,6 +600,7 @@
             <p><strong>الاسم:</strong> ${esc(order.customer?.name || "")}</p>
             <p><strong>الهاتف:</strong> ${esc(order.customer?.phone || "")}</p>
             <p><strong>العنوان:</strong> ${esc(order.customer?.address || order.tableNumber || "")}</p>
+            <p><strong>موقع الزبون:</strong> ${locationUrl ? `<a href="${esc(locationUrl)}" target="_blank">فتح Google Maps</a>` : "غير محدد"}</p>
             <p><strong>المنطقة:</strong> ${esc(order.customer?.region || "غير محددة")}</p>
             <p><strong>المسافة:</strong> ${order.distanceKm ? `${Number(order.distanceKm).toFixed(2)} كم` : "غير محسوبة"}</p>
             <p><strong>مدة الطريق:</strong> ${order.routeDurationMin ? `${Number(order.routeDurationMin)} دقيقة` : "غير محسوبة"}</p>
@@ -485,13 +624,7 @@
         </div>
         <div class="panel">
           <h3>الأصناف</h3>
-          <div class="order-lines">${(order.items || []).map(item => `<div class="order-line">
-            <div><strong>${esc(item.name)}</strong><p class="muted">${esc(item.optionName || "")}${item.addons ? ` - إضافات: ${esc(item.addons)}` : ""}</p>${item.notes ? `<p class="muted">ملاحظة: ${esc(item.notes)}</p>` : ""}</div>
-            ${item.available === false ? `<span class="late-badge">غير متوفر</span>` : ""}
-            <span>×${esc(item.quantity || 1)}</span>
-            <span>${K.fmt(item.price || 0)}</span>
-            <strong>${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}</strong>
-          </div>`).join("")}</div>
+          ${orderItemsHtml}
         </div>
         <div class="panel"><h3>سجل الحالة</h3>${renderStatusTimeline(order)}</div>
         <div class="row-actions order-modal-actions">
@@ -502,11 +635,14 @@
           <button class="ghost-btn" data-status-quick="${order.id}" data-next-status="مع السائق">مع السائق</button>
           <button class="success-btn" data-status-quick="${order.id}" data-next-status="تم التسليم">مكتمل</button>
           <button class="danger-btn" data-status-quick="${order.id}" data-next-status="ملغي">ملغي</button>
+          <button class="ghost-btn" data-print-driver="${order.id}">طباعة نسخة الموصل</button>
           <button class="ghost-btn" data-print-kitchen="${order.id}">طباعة طلب مطبخ</button>
           <button class="ghost-btn" data-print-invoice="${order.id}">طباعة فاتورة زبون</button>
           <button class="ghost-btn" data-copy-order="${order.id}">نسخ بيانات الطلب</button>
+          ${order.customer?.phone ? `<button class="ghost-btn" data-copy-phone="${order.id}">نسخ رقم الهاتف</button>` : ""}
           ${mapsUrl ? `<a class="ghost-btn" href="${esc(mapsUrl)}" target="_blank">فتح المسار للسائق</a>` : ""}
-          ${order.customer?.phone ? `<a class="ghost-btn" href="tel:${esc(order.customer.phone)}">اتصال</a><a class="success-btn" target="_blank" href="https://wa.me/${esc(String(order.customer.phone).replace(/\\D/g, ""))}">واتساب</a>` : ""}
+          ${order.customer?.phone ? `<a class="ghost-btn" href="tel:${esc(order.customer.phone)}">اتصال</a>` : ""}
+          ${waUrl ? `<a class="success-btn" target="_blank" href="${esc(waUrl)}">إرسال واتساب</a>` : ""}
         </div>
       </section>
     </div>`;
@@ -926,6 +1062,9 @@
   }
   function openOrderDetails(orderId) {
     state.selectedOrderId = orderId;
+    state.orderDetailsFull = false;
+    state.dismissedOrderPopups.add(orderId);
+    saveDismissedPopups();
     render();
   }
   async function updateOrderStatus(orderId, status, extra = {}) {
@@ -933,6 +1072,7 @@
     const order = state.orders.find(o => o.id === orderId) || {};
     const history = (order.statusHistory || []).concat({ status, atMs: now, by: state.user?.email || "admin", reason: extra.cancelReason || extra.rejectReason || "" });
     const timestamps = {};
+    if (status === "قيد المراجعة") timestamps.reviewedAtMs = now;
     if (status === "مقبول") timestamps.acceptedAtMs = now;
     if (status === "قيد التحضير") timestamps.preparingAtMs = now;
     if (status === "جاهز") timestamps.readyAtMs = now;
@@ -941,12 +1081,17 @@
     if (status === "ملغي" || status === "مرفوض") timestamps.canceledAtMs = now;
     await db.collection("orders").doc(orderId).set({ status, source: order.source || "صفحة الزبون", updatedAtMs: now, statusHistory: history, ...timestamps, ...extra }, { merge: true });
     await db.collection("public_order_status").doc(orderId).set({ status, updatedAtMs: Date.now() }, { merge: true });
+    state.dismissedOrderPopups.delete(orderId);
+    saveDismissedPopups();
     if (!pendingNewOrders().filter(order => order.id !== orderId).length) stopOrderAlarm();
     state.orders = state.orders.map(order => order.id === orderId ? { ...order, status, statusHistory: history, ...timestamps, ...extra } : order);
     render();
   }
   async function acceptOrder(orderId) {
     await updateOrderStatus(orderId, "مقبول");
+    state.selectedOrderId = orderId;
+    state.orderDetailsFull = true;
+    render();
     toast("تم قبول الطلب.");
   }
   async function rejectOrder(orderId) {
@@ -955,13 +1100,19 @@
     toast("تم رفض الطلب.", "error-notice");
   }
   function orderPlainText(order) {
-    return `طلب #${order.id}\nالحالة: ${order.status || "جديد"}\nالزبون: ${order.customer?.name || ""}\nالهاتف: ${order.customer?.phone || ""}\nالعنوان: ${order.customer?.address || ""}\n${(order.items || []).map(item => `- ${item.name} / ${item.optionName || ""} × ${item.quantity || 1}`).join("\n")}\nالإجمالي: ${K.fmt(order.total)}`;
+    return `${orderWhatsAppText(order)}\nالحالة: ${order.status || "جديد"}`;
   }
   async function copyOrderData(orderId) {
     const order = state.orders.find(o => o.id === orderId);
     if (!order) return;
     await navigator.clipboard.writeText(orderPlainText(order));
     toast("تم نسخ بيانات الطلب.");
+  }
+  async function copyOrderPhone(orderId) {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order?.customer?.phone) return toast("لا يوجد رقم هاتف لهذا الطلب.", "error-notice");
+    await navigator.clipboard.writeText(order.customer.phone);
+    toast("تم نسخ رقم الهاتف.");
   }
   function printKitchenOrder(orderId) {
     const order = state.orders.find(o => o.id === orderId);
@@ -973,20 +1124,28 @@
     if (!order) return;
     printOrderDocument(order, "invoice");
   }
+  function printDriverOrder(orderId) {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+    printOrderDocument(order, "driver");
+  }
   function printOrderDocument(order, type) {
     const prices = type === "invoice";
+    const driver = type === "driver";
+    const title = prices ? esc(state.settings.restaurantName || "كباب الديرة") : driver ? "نسخة الموصل" : "طلب مطبخ";
+    const location = customerLocationUrl(order);
     const area = document.createElement("div");
     area.id = "printArea";
     area.className = "thermal-print";
-    area.innerHTML = `<h1>${prices ? esc(state.settings.restaurantName || "كباب الديرة") : "طلب مطبخ"}</h1>
+    area.innerHTML = `<h1>${title}</h1>
       <h2>#${esc(order.id.slice(0, 8))}</h2>
       <p>${orderTime(order).toLocaleString("ar-IQ")}</p>
       <p>${esc(orderTypeLabel(order.orderType))}</p>
       ${order.distanceKm ? `<p>المسافة ${Number(order.distanceKm).toFixed(2)} كم - ${Number(order.routeDurationMin || 0)} دقيقة</p>` : ""}
-      ${prices ? `<p>${esc(order.customer?.name || "")} - ${esc(order.customer?.phone || "")}</p><p>${esc(order.customer?.address || "")}</p>` : ""}
+      ${prices || driver ? `<p>${esc(order.customer?.name || "")} - ${esc(order.customer?.phone || "")}</p><p>${esc(order.customer?.address || order.tableNumber || "")}</p>${location ? `<p>${esc(location)}</p>` : ""}` : ""}
       <hr>
-      ${(order.items || []).map(item => `<div class="print-line"><span>${esc(item.name)} / ${esc(item.optionName || "")} × ${esc(item.quantity || 1)}</span>${prices ? `<strong>${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}</strong>` : ""}</div>${item.notes ? `<p>ملاحظة: ${esc(item.notes)}</p>` : ""}`).join("")}
-      ${prices ? `<hr><p>التوصيل: ${K.fmt(order.deliveryFee)}</p><h2>الإجمالي: ${K.fmt(order.total)}</h2><p>شكرًا لاختياركم كباب الديرة</p>` : ""}
+      ${(order.items || []).map(item => `<div class="print-line"><span>${esc(item.name)} / ${esc(item.optionName || "")} × ${esc(item.quantity || 1)}</span>${prices ? `<strong>${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}</strong>` : ""}</div>${item.addons ? `<p>إضافات: ${esc(item.addons)}</p>` : ""}${item.notes ? `<p>ملاحظة: ${esc(item.notes)}</p>` : ""}`).join("")}
+      ${prices || driver ? `<hr><p>التوصيل: ${K.fmt(order.deliveryFee)}</p><h2>الإجمالي: ${K.fmt(order.total)}</h2>${prices ? `<p>شكرًا لاختياركم كباب الديرة</p>` : ""}` : ""}
     `;
     document.body.appendChild(area);
     window.print();
@@ -1016,16 +1175,17 @@
   }
 
   app.addEventListener("click", async event => {
-    const el = event.target.closest("[data-tab],[data-action],[data-edit-category],[data-toggle-category],[data-delete-category],[data-edit-item],[data-toggle-item],[data-delete-item],[data-edit-addon],[data-toggle-addon],[data-delete-addon],[data-archive],[data-delete-order],[data-print],[data-print-kitchen],[data-print-invoice],[data-order-open],[data-accept-order],[data-reject-order],[data-export],[data-remove-option]");
+    primeAudio();
+    const el = event.target.closest("[data-tab],[data-action],[data-edit-category],[data-toggle-category],[data-delete-category],[data-edit-item],[data-toggle-item],[data-delete-item],[data-edit-addon],[data-toggle-addon],[data-delete-addon],[data-archive],[data-delete-order],[data-print],[data-print-kitchen],[data-print-invoice],[data-print-driver],[data-copy-order],[data-copy-phone],[data-dismiss-order-popup],[data-show-full-details],[data-status-quick],[data-order-open],[data-accept-order],[data-reject-order],[data-export],[data-remove-option]");
     if (!el) return;
     if (el.dataset.tab) { state.tab = el.dataset.tab; state.editing = null; render(); }
     if (el.dataset.action === "logout") await services.auth.signOut();
-    if (el.dataset.action === "enableAudio") { audioReady = true; toast("تم تفعيل صوت تنبيه الطلبات."); }
-    if (el.dataset.action === "enableOrderAudio") { enableOrderAudio(); toast("تم تفعيل صوت الطلبات."); }
-    if (el.dataset.action === "stopAlarm") { stopOrderAlarm(true); toast("تم إيقاف الصوت مؤقتًا."); }
+    if (el.dataset.action === "enableAudio") { audioReady = true; }
+    if (el.dataset.action === "enableOrderAudio") enableOrderAudio();
+    if (el.dataset.action === "stopAlarm") { stopOrderAlarm(); state.alarmMuted = false; saveAlarmSettings(); }
     if (el.dataset.action === "testAlarm") testOrderAlarm();
     if (el.dataset.action === "clearOrderToast") { state.orderToast = ""; render(); }
-    if (el.dataset.action === "closeOrderModal") { state.selectedOrderId = ""; render(); }
+    if (el.dataset.action === "closeOrderModal") { state.selectedOrderId = ""; state.orderDetailsFull = false; render(); }
     if (el.dataset.action === "requestNotifications" && "Notification" in window) {
       const permission = await Notification.requestPermission();
       state.alarmSettings.browserNotifications = permission === "granted";
@@ -1051,12 +1211,24 @@
     if (el.dataset.action === "addOption") document.getElementById("optionsEditor").insertAdjacentHTML("beforeend", optionForm());
     if (el.dataset.removeOption !== undefined) el.closest(".option-editor")?.remove();
     if (el.dataset.orderOpen) openOrderDetails(el.dataset.orderOpen);
+    if (el.dataset.showFullDetails) {
+      state.selectedOrderId = el.dataset.showFullDetails;
+      state.orderDetailsFull = true;
+      render();
+    }
+    if (el.dataset.dismissOrderPopup) {
+      state.dismissedOrderPopups.add(el.dataset.dismissOrderPopup);
+      saveDismissedPopups();
+      render();
+    }
     if (el.dataset.acceptOrder) await acceptOrder(el.dataset.acceptOrder);
     if (el.dataset.rejectOrder) await rejectOrder(el.dataset.rejectOrder);
     if (el.dataset.statusQuick) await updateOrderStatus(el.dataset.statusQuick, el.dataset.nextStatus);
+    if (el.dataset.printDriver) printDriverOrder(el.dataset.printDriver);
     if (el.dataset.printKitchen) printKitchenOrder(el.dataset.printKitchen);
     if (el.dataset.printInvoice) printCustomerInvoice(el.dataset.printInvoice);
     if (el.dataset.copyOrder) await copyOrderData(el.dataset.copyOrder);
+    if (el.dataset.copyPhone) await copyOrderPhone(el.dataset.copyPhone);
     if (el.dataset.archive) await db.collection("orders").doc(el.dataset.archive).set({ archived: true }, { merge: true });
     if (el.dataset.deleteOrder && confirm("حذف الطلب؟")) await db.collection("orders").doc(el.dataset.deleteOrder).delete();
     if (el.dataset.print) printCustomerInvoice(el.dataset.print);
@@ -1084,6 +1256,7 @@
   });
 
   app.addEventListener("change", async event => {
+    primeAudio();
     if (event.target.dataset.status) {
       await updateOrderStatus(event.target.dataset.status, event.target.value);
     }
@@ -1106,6 +1279,7 @@
   });
 
   app.addEventListener("submit", async event => {
+    primeAudio();
     event.preventDefault();
     const form = event.target.dataset.form;
     try {
@@ -1124,6 +1298,10 @@
       return;
     }
     state.user = user;
+    state.alarmMuted = false;
+    audioReady = true;
+    saveAlarmSettings();
+    primeAudio();
     render();
     db.collection("categories").onSnapshot(s => applyMenuSnapshot("categories", s), () => { state.categories = []; publishMenuSync(); render(); });
     db.collection("items").onSnapshot(s => applyMenuSnapshot("items", s), () => { state.items = []; publishMenuSync(); render(); });

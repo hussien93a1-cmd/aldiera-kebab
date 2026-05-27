@@ -29,6 +29,7 @@ window.KABAB = (() => {
   const currency = "د.ع";
   const orderStatuses = [
     "جديد",
+    "قيد المراجعة",
     "مقبول",
     "قيد التحضير",
     "جاهز",

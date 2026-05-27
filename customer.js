@@ -10,7 +10,7 @@
     items: read("kd_cached_items", []),
     settings: read("kd_cached_settings", K.settingsSeed),
     cart: read("kd_customer_cart", []),
-    customer: read("kd_customer_data", { name: "", phone: "", address: "", lat: "", lng: "", mapsUrl: "" }),
+    customer: { name: "", phone: "", address: "", notes: "", lat: "", lng: "", mapsUrl: "", ...read("kd_customer_data", {}) },
     orderType: localStorage.getItem("kd_order_type") || "takeaway",
     screen: "orderType",
     tableNumber: localStorage.getItem("kd_table_number") || "",
@@ -27,7 +27,8 @@
     route: read("kd_customer_route", null),
     routeLoading: false,
     routeError: "",
-    routeTimer: null
+    routeTimer: null,
+    errors: {}
   };
 
   function read(key, fallback) {
@@ -53,6 +54,25 @@
   function itemPrice(item) {
     const option = (item.options || []).find(o => o.available !== false) || {};
     return Number(option.price || 0);
+  }
+  function cleanIraqiPhone(raw) {
+    let value = String(raw || "").trim().replace(/[^\d+]/g, "");
+    if (value.startsWith("+")) value = value.slice(1);
+    if (value.startsWith("00")) value = value.slice(2);
+    if (value.startsWith("964")) return value;
+    if (value.startsWith("07")) return `964${value.slice(1)}`;
+    return value;
+  }
+  function isValidIraqiPhone(raw) {
+    return /^9647\d{9}$/.test(cleanIraqiPhone(raw));
+  }
+  function customerField(name, label, type = "text", extra = "") {
+    const error = state.errors[name];
+    return `<label class="${error ? "field-error" : ""}">${label}<input ${type ? `type="${type}"` : ""} data-customer="${name}" value="${escapeHtml(state.customer[name] || "")}" ${extra}>${error ? `<small class="input-error">${escapeHtml(error)}</small>` : ""}</label>`;
+  }
+  function customerTextarea(name, label, extra = "") {
+    const error = state.errors[name];
+    return `<label class="${error ? "field-error" : ""}">${label}<textarea data-customer="${name}" ${extra}>${escapeHtml(state.customer[name] || "")}</textarea>${error ? `<small class="input-error">${escapeHtml(error)}</small>` : ""}</label>`;
   }
   function totals() {
     const subtotal = state.cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
@@ -396,14 +416,15 @@
     return `<div class="toolbar"><button class="ghost-btn" data-action="back">رجوع</button><h2>تأكيد الطلب</h2></div>
       <div class="split">
         <section class="panel stack">
-          <h3>بيانات الزبون</h3>
+          <h3>معلومات الزبون</h3>
           <div class="form-grid">
-            <label>الاسم<input data-customer="name" value="${escapeHtml(state.customer.name)}"></label>
-            <label>الهاتف<input data-customer="phone" value="${escapeHtml(state.customer.phone)}"></label>
+            ${customerField("name", "اسم الزبون")}
+            ${customerField("phone", "رقم الهاتف", "tel", `placeholder="07XXXXXXXXX"`)}
           </div>
+          ${customerTextarea("address", state.orderType === "delivery" ? "العنوان" : "العنوان (اختياري)")}
+          ${customerTextarea("notes", "ملاحظات اختيارية", `placeholder="أي ملاحظة على الطلب"`)}
           ${state.orderType === "dinein" ? `<label>رقم الطاولة<input data-table value="${escapeHtml(state.tableNumber)}"></label>` : ""}
           ${state.orderType === "delivery" ? `
-            <label>العنوان<textarea data-customer="address">${escapeHtml(state.customer.address)}</textarea></label>
             <div class="form-grid">
               <label>خط العرض<input data-customer="lat" value="${escapeHtml(state.customer.lat)}" placeholder="مثال 33.355"></label>
               <label>خط الطول<input data-customer="lng" value="${escapeHtml(state.customer.lng)}" placeholder="مثال 44.336"></label>
@@ -422,8 +443,7 @@
               ${t.rawDeliveryFee && t.rawDeliveryFee !== t.roundedDeliveryFee ? `<span>قبل التقريب: ${K.fmt(t.rawDeliveryFee)}</span>` : ""}
             </div>` : ""}
           ` : ""}
-          <button class="primary-btn" data-action="sendOrder" ${state.isSending ? "disabled" : ""}>${state.isSending ? "جاري إرسال الطلب..." : "إرسال الطلب إلى المطعم"}</button>
-          ${state.settings.whatsappEnabled ? `<button class="success-btn" data-action="whatsapp">إرسال نسخة واتساب</button>` : ""}
+          <button class="primary-btn" data-action="sendOrder" ${state.isSending ? "disabled" : ""}>${state.isSending ? "جاري إرسال الطلب..." : "إرسال الطلب"}</button>
         </section>
         <section class="panel stack">
           <h3>السلة</h3>
@@ -464,13 +484,22 @@
 
   async function sendOrder() {
     const t = totals();
-    if (!state.cart.length) return setMessage("السلة فارغة.", "error-notice");
-    if (!state.settings.isOpen) return setMessage(state.settings.closedMessage || "المطعم مغلق حاليًا.", "error-notice");
-    if (!state.customer.name.trim() || !state.customer.phone.trim()) return setMessage("أدخل الاسم ورقم الهاتف.", "error-notice");
-    if (state.orderType === "dinein" && !state.tableNumber.trim()) return setMessage("أدخل رقم الطاولة.", "error-notice");
+    state.errors = {};
+    state.customer.phone = cleanIraqiPhone(state.customer.phone);
+    if (!state.cart.length) state.errors.cart = "السلة فارغة.";
+    if (!state.settings.isOpen) state.errors.general = state.settings.closedMessage || "المطعم مغلق حاليًا.";
+    if (!state.customer.name.trim()) state.errors.name = "أدخل اسم الزبون.";
+    if (!isValidIraqiPhone(state.customer.phone)) state.errors.phone = "الرجاء إدخال رقم هاتف عراقي صحيح يبدأ بـ 07 أو +9647";
+    if (state.orderType === "dinein" && !state.tableNumber.trim()) state.errors.general = "أدخل رقم الطاولة.";
+    if (state.orderType === "delivery" && !state.customer.address.trim()) state.errors.address = "أدخل عنوان التوصيل.";
+    if (Object.keys(state.errors).length) {
+      save();
+      const firstError = state.errors.general || state.errors.cart || state.errors.name || state.errors.phone || state.errors.address || "تحقق من معلومات الطلب.";
+      render();
+      return setMessage(firstError, "error-notice");
+    }
     if (state.orderType === "delivery") {
       if (!state.settings.deliveryEnabled) return setMessage("الدليفري غير متاح حاليًا.", "error-notice");
-      if (!state.customer.address.trim()) return setMessage("أدخل عنوان التوصيل.", "error-notice");
       if (!validCoords(state.customer.lat, state.customer.lng)) return setMessage("حدد موقعك على الخريطة أو أدخل الإحداثيات قبل إرسال الطلب.", "error-notice");
       if (!state.route?.distanceKm) {
         await requestRoute();
@@ -482,13 +511,14 @@
     }
     if (!db) return setMessage("أضف إعدادات Firebase حتى يتم حفظ الطلب في Firestore.", "error-notice");
 
+    const pendingWhatsappWindow = whatsappPhone(state.settings.whatsappNumber) ? window.open("", "_blank") : null;
     state.isSending = true;
     state.message = `<div class="notice">جاري إرسال الطلب إلى المطعم...</div>`;
     render();
     try {
       const finalTotals = totals();
       const payload = {
-        customer: { ...state.customer },
+        customer: { ...state.customer, phone: cleanIraqiPhone(state.customer.phone) },
         orderType: state.orderType,
         tableNumber: state.orderType === "dinein" ? state.tableNumber : "",
         items: state.cart,
@@ -524,13 +554,17 @@
       } catch (statusError) {
         console.warn("Order status tracking write failed", statusError);
       }
+      const whatsappUrl = orderWhatsappUrl(doc.id, payload);
       state.lastOrderId = doc.id;
       localStorage.setItem("kd_last_order_id", doc.id);
       state.cart = [];
-      state.message = `<div class="success-notice">تم إرسال الطلب بنجاح. يمكنك تتبع حالته من زر تتبع الطلب.</div>`;
+      state.message = `<div class="success-notice">تم إرسال طلبك بنجاح. يمكنك تتبع حالته من زر تتبع الطلب.</div>`;
       state.view = "track";
       subscribeLastOrder();
+      if (whatsappUrl && pendingWhatsappWindow) pendingWhatsappWindow.location.href = whatsappUrl;
+      else if (whatsappUrl) window.open(whatsappUrl, "_blank");
     } catch (error) {
+      if (pendingWhatsappWindow) pendingWhatsappWindow.close();
       const details = error && error.code ? ` (${error.code})` : "";
       const message = error?.message ? ` - ${escapeHtml(error.message)}` : "";
       state.message = `<div class="error-notice">تعذر إرسال الطلب${details}${message}. تأكد من نشر Firestore Rules الموجودة في ملف firestore-rules.txt.</div>`;
@@ -541,9 +575,52 @@
     }
   }
 
-  function whatsappText() {
-    const t = totals();
-    return `طلب جديد من كباب الديرة\nالاسم: ${state.customer.name}\nالهاتف: ${state.customer.phone}\nالنوع: ${state.orderType}\n${state.cart.map(i => `- ${i.name} / ${i.optionName} × ${i.quantity}`).join("\n")}\nالإجمالي: ${K.fmt(t.total)}`;
+  function whatsappPhone(raw) {
+    let digits = String(raw || "").replace(/\D/g, "");
+    if (digits.startsWith("00")) digits = digits.slice(2);
+    if (digits.startsWith("0")) digits = `964${digits.slice(1)}`;
+    if (!digits.startsWith("964") && digits.length === 10) digits = `964${digits}`;
+    return digits;
+  }
+
+  function orderTypeLabel(type) {
+    return { delivery: "دليفري", takeaway: "سفري", dinein: "صالة" }[type] || type || "غير محدد";
+  }
+
+  function customerLocationUrl(customer = state.customer) {
+    if (customer.lat && customer.lng) return `https://www.google.com/maps?q=${customer.lat},${customer.lng}`;
+    return customer.mapsUrl || "";
+  }
+
+  function whatsappText(orderId, payload) {
+    const location = customerLocationUrl(payload.customer || {});
+    const lines = [
+      `طلب جديد من كباب الديرة`,
+      `رقم الطلب: ${orderId}`,
+      `الاسم: ${payload.customer?.name || ""}`,
+      `الهاتف: ${payload.customer?.phone || ""}`,
+      `نوع الطلب: ${orderTypeLabel(payload.orderType)}`,
+      `العنوان: ${payload.customer?.address || payload.tableNumber || ""}`,
+      location ? `موقع الزبون: ${location}` : "موقع الزبون: غير محدد",
+      "",
+      "الأصناف:"
+    ];
+    (payload.items || []).forEach(item => {
+      lines.push(`- ${item.name || ""}${item.optionName ? ` / ${item.optionName}` : ""} × ${item.quantity || 1} = ${K.fmt(Number(item.price || 0) * Number(item.quantity || 1))}`);
+      if (item.addons) lines.push(`  الإضافات: ${item.addons}`);
+      if (item.notes) lines.push(`  ملاحظة: ${item.notes}`);
+    });
+    if (payload.notes) lines.push("", `ملاحظات: ${payload.notes}`);
+    lines.push("");
+    lines.push(`أجور التوصيل: ${K.fmt(payload.deliveryFee || 0)}`);
+    lines.push(`الإجمالي النهائي: ${K.fmt(payload.total || 0)}`);
+    return lines.join("\n");
+  }
+
+  function orderWhatsappUrl(orderId, payload) {
+    const phone = whatsappPhone(state.settings.whatsappNumber);
+    if (!phone) return "";
+    return `https://wa.me/${phone}?text=${encodeURIComponent(whatsappText(orderId, payload))}`;
   }
 
   function subscribe() {
@@ -653,7 +730,6 @@
         setMessage("حدث خطأ غير متوقع أثناء إرسال الطلب.", "error-notice");
       }
     }
-    if (el.dataset.action === "whatsapp") window.open(`https://wa.me/${state.settings.whatsappNumber}?text=${encodeURIComponent(whatsappText())}`, "_blank");
     if (el.dataset.action === "geo") navigator.geolocation.getCurrentPosition(pos => {
       state.customer.lat = pos.coords.latitude.toFixed(6);
       state.customer.lng = pos.coords.longitude.toFixed(6);
@@ -667,6 +743,8 @@
   app.addEventListener("input", event => {
     if (event.target.dataset.customer) {
       state.customer[event.target.dataset.customer] = event.target.value;
+      delete state.errors[event.target.dataset.customer];
+      delete state.errors.general;
       if (event.target.dataset.customer === "mapsUrl") {
         const coords = parseMapsLink(event.target.value);
         if (coords) {
@@ -682,6 +760,7 @@
     }
     if ("table" in event.target.dataset) {
       state.tableNumber = event.target.value;
+      delete state.errors.general;
       save();
     }
   });
