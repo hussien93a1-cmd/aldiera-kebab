@@ -84,12 +84,12 @@ window.KABAB = (() => {
   };
 
   const categoriesSeed = [
-    { id: "offers", name: "عروض الديرة", details: "عروض خاصة ومميزة", icon: "badge-percent", order: 1, active: true, hidden: false, isOffers: true },
-    { id: "nafarat", name: "قسم النفرات", details: "مشويات طازجة يوميًا", icon: "flame", order: 2, active: true, hidden: false, isOffers: false },
-    { id: "weight", name: "قسم كباب الوزن", details: "لحم غنم عراقي أصيل", icon: "package", order: 3, active: true, hidden: false, isOffers: false },
-    { id: "sandwiches", name: "قسم الساندويش", details: "وجبات سريعة وخفيفة", icon: "utensils", order: 4, active: true, hidden: false, isOffers: false },
-    { id: "drinks", name: "المشروبات الباردة", details: "عصائر ومشروبات غازية", icon: "coffee", order: 5, active: true, hidden: false, isOffers: false },
-    { id: "extras", name: "إضافات أخرى", details: "مقبلات وصمون حار", icon: "plus", order: 6, active: true, hidden: false, isOffers: false }
+    { id: "offers", name: "عروض الديرة", details: "عروض خاصة ومميزة", icon: "badge-percent", order: 1, active: true, hidden: false, isOffers: true, orderVisibility: { dinein: true, takeaway: true, delivery: true } },
+    { id: "nafarat", name: "قسم النفرات", details: "مشويات طازجة يوميًا", icon: "flame", order: 2, active: true, hidden: false, isOffers: false, orderVisibility: { dinein: true, takeaway: true, delivery: true } },
+    { id: "weight", name: "قسم كباب الوزن", details: "لحم غنم عراقي أصيل", icon: "package", order: 3, active: true, hidden: false, isOffers: false, orderVisibility: { dinein: false, takeaway: true, delivery: true } },
+    { id: "sandwiches", name: "قسم الساندويش", details: "وجبات سريعة وخفيفة", icon: "utensils", order: 4, active: true, hidden: false, isOffers: false, orderVisibility: { dinein: true, takeaway: true, delivery: true } },
+    { id: "drinks", name: "المشروبات الباردة", details: "عصائر ومشروبات غازية", icon: "coffee", order: 5, active: true, hidden: false, isOffers: false, orderVisibility: { dinein: true, takeaway: true, delivery: true } },
+    { id: "extras", name: "إضافات أخرى", details: "مقبلات وصمون حار", icon: "plus", order: 6, active: true, hidden: false, isOffers: false, orderVisibility: { dinein: true, takeaway: true, delivery: true } }
   ];
 
   const itemsSeed = [

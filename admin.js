@@ -45,6 +45,7 @@
     items: K.localSync.read()?.items || [],
     settings: K.localSync.read()?.settings || K.settingsSeed,
     orders: [],
+    captainCalls: [],
     addons: K.localSync.read()?.addons || [],
     customers: [],
     editing: null,
@@ -60,11 +61,15 @@
       }
     })()),
     orderFilters: {
+      tab: "all",
       status: "all",
       type: "all",
       payment: "all",
+      captain: "",
+      date: "",
       search: "",
       sort: "newest",
+      newOnly: false,
       lateOnly: false
     },
     alarmMuted: false,
@@ -299,12 +304,36 @@
   function isLateOrder(order) {
     return isNewOrder(order) && orderWaitMinutes(order) >= 10;
   }
+  function orderTabKey(order) {
+    const status = order.status || "جديد";
+    if (["new", "جديد"].includes(status)) return "new";
+    if (["مقبول", "قيد المراجعة", "قيد التحضير"].includes(status)) return "active";
+    if (status === "جاهز") return "ready";
+    if (status === "مع السائق") return "driver";
+    if (["تم التسليم", "مكتمل"].includes(status)) return "done";
+    if (["ملغي", "مرفوض"].includes(status)) return "canceled";
+    return "active";
+  }
+  function orderTabCounts(list = state.orders.filter(order => !order.archived)) {
+    const counts = { all: list.length, new: 0, active: 0, ready: 0, driver: 0, done: 0, canceled: 0 };
+    list.forEach(order => { counts[orderTabKey(order)] += 1; });
+    return counts;
+  }
   function filteredOnlineOrders() {
     const filters = state.orderFilters;
     let list = state.orders.filter(order => !order.archived);
+    if (state.settings.showDoneOrders === false) list = list.filter(order => !["تم التسليم", "مكتمل"].includes(order.status));
+    if (state.settings.showCanceledOrders === false) list = list.filter(order => !["ملغي", "مرفوض"].includes(order.status));
+    if (filters.tab && filters.tab !== "all") list = list.filter(order => orderTabKey(order) === filters.tab);
     if (filters.status !== "all") list = list.filter(order => (order.status || "جديد") === filters.status);
     if (filters.type !== "all") list = list.filter(order => (order.orderType || "") === filters.type);
     if (filters.payment !== "all") list = list.filter(order => (order.paymentStatus || "دفع عند الاستلام") === filters.payment);
+    if (filters.captain.trim()) {
+      const q = filters.captain.trim().toLowerCase();
+      list = list.filter(order => [order.driverName, order.driverPhone, order.captainName, order.captainPhone].some(value => String(value || "").toLowerCase().includes(q)));
+    }
+    if (filters.date) list = list.filter(order => orderTime(order).toISOString().slice(0, 10) === filters.date);
+    if (filters.newOnly) list = list.filter(isNewOrder);
     if (filters.lateOnly) list = list.filter(isLateOrder);
     if (filters.search.trim()) {
       const q = filters.search.trim().toLowerCase();
@@ -313,9 +342,10 @@
     const sorters = {
       newest: (a, b) => orderTime(b) - orderTime(a),
       oldest: (a, b) => orderTime(a) - orderTime(b),
-      highest: (a, b) => Number(b.total || 0) - Number(a.total || 0)
+      highest: (a, b) => Number(b.total || 0) - Number(a.total || 0),
+      status: (a, b) => statusClass(a.status).localeCompare(statusClass(b.status), "ar")
     };
-    return [...list].sort(sorters[filters.sort] || sorters.newest);
+    return [...list].sort(sorters[filters.sort] || sorters.newest).slice(0, Number(state.settings.ordersLimit || 200));
   }
   function onlineOrderStats(list = state.orders.filter(order => !order.archived)) {
     const today = new Date().toDateString();
@@ -409,6 +439,7 @@
     const live = filteredOnlineOrders();
     const pending = pendingNewOrders().length;
     const stats = onlineOrderStats();
+    const tabCounts = orderTabCounts();
     return `<section class="panel order-control-panel online-orders-section">
       <div class="panel-head">
         <div><h3>طلبات الأونلاين / Online Orders</h3><p class="muted">طلبات صفحة الزبون و APK تظهر هنا لحظيًا</p></div>
@@ -434,13 +465,29 @@
         </select></label>
         <label>مستوى الصوت<input type="range" min="0.1" max="1" step="0.1" value="${esc(state.alarmSettings.volume)}" data-alarm-setting="volume"></label>
       </div>
+      ${renderCaptainCalls()}
+      <div class="order-tabs">
+        ${[
+          ["all", "جميع الطلبات"],
+          ["new", "جديدة"],
+          ["active", "قيد التنفيذ"],
+          ["ready", "جاهزة"],
+          ["driver", "مع السائق"],
+          ["done", "مكتملة"],
+          ["canceled", "ملغية"]
+        ].map(([key, label]) => `<button class="order-tab ${state.orderFilters.tab === key ? "active" : ""}" data-order-tab="${key}">${label} (${tabCounts[key] || 0})</button>`).join("")}
+      </div>
       <div class="order-filters">
         <label>بحث<input data-order-filter="search" placeholder="رقم الطلب / الاسم / الهاتف" value="${esc(state.orderFilters.search)}"></label>
         <label>الحالة<select data-order-filter="status"><option value="all">كل الحالات</option>${K.orderStatuses.map(s => `<option value="${s}" ${state.orderFilters.status === s ? "selected" : ""}>${s}</option>`).join("")}</select></label>
         <label>نوع الطلب<select data-order-filter="type"><option value="all">كل الأنواع</option><option value="delivery" ${state.orderFilters.type === "delivery" ? "selected" : ""}>دليفري</option><option value="takeaway" ${state.orderFilters.type === "takeaway" ? "selected" : ""}>سفري</option><option value="dinein" ${state.orderFilters.type === "dinein" ? "selected" : ""}>صالة</option></select></label>
         <label>الدفع<select data-order-filter="payment"><option value="all">كل حالات الدفع</option><option value="دفع عند الاستلام" ${state.orderFilters.payment === "دفع عند الاستلام" ? "selected" : ""}>دفع عند الاستلام</option><option value="مدفوع" ${state.orderFilters.payment === "مدفوع" ? "selected" : ""}>مدفوع</option><option value="غير مدفوع" ${state.orderFilters.payment === "غير مدفوع" ? "selected" : ""}>غير مدفوع</option></select></label>
-        <label>الترتيب<select data-order-filter="sort"><option value="newest" ${state.orderFilters.sort === "newest" ? "selected" : ""}>الأحدث</option><option value="oldest" ${state.orderFilters.sort === "oldest" ? "selected" : ""}>الأقدم</option><option value="highest" ${state.orderFilters.sort === "highest" ? "selected" : ""}>الأعلى قيمة</option></select></label>
+        <label>التاريخ<input type="date" data-order-filter="date" value="${esc(state.orderFilters.date || "")}"></label>
+        <label>الكابتن<input data-order-filter="captain" placeholder="اسم أو رقم الكابتن" value="${esc(state.orderFilters.captain || "")}"></label>
+        <label>الترتيب<select data-order-filter="sort"><option value="newest" ${state.orderFilters.sort === "newest" ? "selected" : ""}>الأحدث</option><option value="oldest" ${state.orderFilters.sort === "oldest" ? "selected" : ""}>الأقدم</option><option value="highest" ${state.orderFilters.sort === "highest" ? "selected" : ""}>الأعلى قيمة</option><option value="status" ${state.orderFilters.sort === "status" ? "selected" : ""}>حسب الحالة</option></select></label>
+        <label class="inline-check"><input type="checkbox" data-order-filter="newOnly" ${state.orderFilters.newOnly ? "checked" : ""}> الطلبات الجديدة فقط</label>
         <label class="inline-check"><input type="checkbox" data-order-filter="lateOnly" ${state.orderFilters.lateOnly ? "checked" : ""}> الطلبات المتأخرة</label>
+        <button class="ghost-btn" data-action="refreshOrders">تحديث</button>
       </div>
       <div class="order-status-board">${renderOrderStatusBoard(live)}</div>
     </section>`;
@@ -451,7 +498,9 @@
     if (status === "قيد المراجعة") return "review";
     if (status === "مقبول") return "accepted";
     if (status === "قيد التحضير") return "preparing";
-    if (status === "جاهز" || status === "تم التسليم") return "ready";
+    if (status === "جاهز") return "ready";
+    if (status === "مع السائق") return "driver";
+    if (status === "تم التسليم" || status === "مكتمل") return "done";
     if (status === "مرفوض" || status === "ملغي") return "canceled";
     return "neutral";
   }
@@ -499,6 +548,31 @@
     return lanes || `<div class="notice">لا توجد طلبات واردة حاليًا.</div>`;
   }
 
+  function renderCaptainCalls() {
+    const calls = state.captainCalls.filter(call => !call.handled).slice(0, 5);
+    if (!calls.length) return "";
+    return `<section class="captain-calls-panel">
+      <div>
+        <strong>استدعاءات الكابتن</strong>
+        <p class="muted">طلبات تواصل أرسلها الزبائن من شاشة متابعة الطلب.</p>
+      </div>
+      <div class="captain-calls-list">
+        ${calls.map(call => `<article class="captain-call-card">
+          <div>
+            <span class="new-badge">استدعاء كابتن</span>
+            <h4>طلب #${esc(call.orderShortId || String(call.orderId || "").slice(0, 8))}</h4>
+            <p>${esc(call.customerName || "زبون")} - ${esc(call.customerPhone || "")}</p>
+            <small>${new Date(call.createdAtMs || Date.now()).toLocaleString("ar-IQ")}</small>
+          </div>
+          <div class="row-actions">
+            ${call.driverPhone ? `<a class="mini-btn green" href="tel:${esc(call.driverPhone)}">اتصال بالكابتن</a>` : `<span class="muted">لا يوجد كابتن معين</span>`}
+            <button class="mini-btn" data-handle-captain-call="${call.id}">تمت المعالجة</button>
+          </div>
+        </article>`).join("")}
+      </div>
+    </section>`;
+  }
+
   function renderOrderCards(orders) {
     if (!orders.length) return `<div class="notice">لا توجد طلبات واردة حاليًا.</div>`;
     return `<div class="order-card-grid">${orders.map(order => {
@@ -508,35 +582,66 @@
       const mapsUrl = orderMapsUrl(order);
       const payment = order.paymentStatus || "دفع عند الاستلام";
       const source = order.source || "صفحة الزبون";
-      return `<article class="order-card status-${statusClass(status)} ${isNewOrder(order) ? "is-new-order" : ""}" data-order-open="${order.id}">
+      const driverName = order.driverName || order.captainName || "";
+      const driverPhone = order.driverPhone || order.captainPhone || "";
+      const quickActions = orderCardActions(order);
+      return `<article class="order-card enhanced-order-card status-${statusClass(status)} ${isNewOrder(order) ? "is-new-order" : ""}">
         <div class="order-card-head">
-          <div><strong>#${esc(order.id.slice(0, 8))}</strong><span class="status-chip">${esc(status)}</span></div>
+          <div><strong>#${esc(order.id.slice(0, 8))}</strong><span class="status-chip status-${statusClass(status)}">${esc(status)}</span></div>
           ${isNewOrder(order) ? `<span class="new-badge">طلب جديد</span>` : ""}
+        </div>
+        <div class="order-status-control order-status-control-card status-${statusClass(status)}">
+          <label><span>🔄 تحديث الحالة</span><select data-status="${order.id}">${K.orderStatuses.map(s => `<option class="status-option-${statusClass(s)}" ${s === status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
         </div>
         <div class="order-meta">
           <span>${orderTime(order).toLocaleString("ar-IQ")}</span>
-          <span>انتظار ${wait} دقيقة</span>
+          <span>منذ ${wait} دقيقة</span>
           <span>${esc(orderTypeLabel(order.orderType))}</span>
           <span>المصدر: ${esc(source)}</span>
           <span>${esc(payment)}</span>
           ${isLateOrder(order) ? `<span class="late-badge">متأخر</span>` : ""}
         </div>
-        <h3>${esc(order.customer?.name || "زبون")}</h3>
-        <p class="muted">${esc(order.customer?.phone || "")}</p>
-        <p class="muted">${esc(order.customer?.address || order.customer?.region || order.tableNumber || "لا يوجد عنوان")}</p>
+        <div class="order-customer-block">
+          <h3>${esc(order.customer?.name || "زبون")}</h3>
+          <p>${esc(order.customer?.phone || "لا يوجد رقم")}</p>
+        </div>
+        <p class="muted">${esc(order.orderType === "delivery" ? (order.customer?.address || "لا يوجد عنوان توصيل") : (order.tableNumber ? `طاولة ${order.tableNumber}` : order.customer?.address || "سفري / صالة"))}</p>
+        ${driverName || driverPhone ? `<p class="muted">الكابتن: ${esc(driverName || "غير مسمى")} ${driverPhone ? `- ${esc(driverPhone)}` : ""}</p>` : ""}
         ${order.distanceKm ? `<p class="muted">المسافة: ${Number(order.distanceKm).toFixed(2)} كم - الوقت: ${Number(order.routeDurationMin || 0)} دقيقة - التوصيل: ${K.fmt(order.deliveryFee)}</p>` : ""}
         <div class="order-summary-line"><span>${itemCount} صنف</span><strong>${K.fmt(order.total)}</strong></div>
         ${order.notes ? `<p class="order-note">${esc(order.notes)}</p>` : ""}
-        <div class="row-actions">
-          <button class="mini-btn green" data-accept-order="${order.id}">قبول</button>
-          <button class="mini-btn red" data-reject-order="${order.id}">رفض</button>
-          <button class="mini-btn orange" data-status-quick="${order.id}" data-next-status="قيد التحضير">تحضير</button>
-          <button class="mini-btn green" data-status-quick="${order.id}" data-next-status="جاهز">جاهز</button>
+        <div class="row-actions order-card-actions">
+          ${quickActions}
+          <button class="mini-btn" data-print-kitchen="${order.id}">طباعة</button>
           <button class="mini-btn" data-order-open="${order.id}">التفاصيل</button>
-          ${mapsUrl ? `<a class="mini-btn" href="${esc(mapsUrl)}" target="_blank">مسار السائق</a>` : ""}
+          ${order.customer?.phone ? `<a class="mini-btn" href="tel:${esc(order.customer.phone)}">اتصال</a><a class="mini-btn green" target="_blank" href="${esc(orderWhatsAppUrl(order))}">واتساب</a>` : ""}
+          ${mapsUrl ? `<a class="mini-btn" href="${esc(mapsUrl)}" target="_blank">الخريطة</a>` : ""}
+          <button class="mini-btn" data-assign-driver="${order.id}">تعيين كابتن</button>
+          <button class="mini-btn" data-internal-note="${order.id}">ملاحظة</button>
         </div>
       </article>`;
     }).join("")}</div>`;
+  }
+
+  function orderCardActions(order) {
+    const status = order.status || "جديد";
+    const id = order.id;
+    if (["new", "جديد"].includes(status)) {
+      return `<button class="mini-btn green" data-accept-order="${id}">قبول</button><button class="mini-btn red" data-reject-order="${id}">إلغاء</button>`;
+    }
+    if (status === "مقبول" || status === "قيد المراجعة") {
+      return `<button class="mini-btn orange" data-status-quick="${id}" data-next-status="قيد التحضير">بدء التحضير</button><button class="mini-btn red" data-status-quick="${id}" data-next-status="ملغي">إلغاء</button>`;
+    }
+    if (status === "قيد التحضير") {
+      return `<button class="mini-btn green" data-status-quick="${id}" data-next-status="جاهز">جاهز</button><button class="mini-btn red" data-status-quick="${id}" data-next-status="ملغي">إلغاء</button>`;
+    }
+    if (status === "جاهز") {
+      return `${order.orderType === "delivery" ? `<button class="mini-btn" data-assign-driver="${id}">تعيين كابتن</button><button class="mini-btn cyan" data-status-quick="${id}" data-next-status="مع السائق">تسليم للكابتن</button>` : `<button class="mini-btn green" data-status-quick="${id}" data-next-status="تم التسليم">مكتمل</button>`}`;
+    }
+    if (status === "مع السائق") {
+      return `<button class="mini-btn green" data-status-quick="${id}" data-next-status="تم التسليم">مكتمل</button>`;
+    }
+    return "";
   }
 
   function ordersTable(orders) {
@@ -619,6 +724,9 @@
     const locationUrl = customerLocationUrl(order);
     const waUrl = orderWhatsAppUrl(order);
     const status = order.status || "جديد";
+    const statusControl = `<div class="order-status-control status-${statusClass(status)}">
+      <label><span>🔄 تحديث الحالة</span><select data-status="${order.id}">${K.orderStatuses.map(s => `<option class="status-option-${statusClass(s)}" ${s === status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+    </div>`;
     const orderItemsHtml = `<div class="order-lines order-lines-large">${(order.items || []).map(item => `<div class="order-line order-line-summary">
       <div><strong>${esc(item.name)}</strong><p class="muted">${esc(item.optionName || "")}${item.addons ? ` - إضافات: ${esc(item.addons)}` : ""}</p>${item.notes ? `<p class="muted">ملاحظة: ${esc(item.notes)}</p>` : ""}</div>
       ${item.available === false ? `<span class="late-badge">غير متوفر</span>` : ""}
@@ -633,6 +741,7 @@
             <div><h2>أصناف الطلب #${esc(order.id.slice(0, 8))}</h2><p class="muted">${esc(orderTypeLabel(order.orderType))} - ${K.fmt(order.total)}</p></div>
             <button class="ghost-btn" data-action="closeOrderModal">إغلاق</button>
           </div>
+          ${statusControl}
           <div class="panel">
             <h3>الأصناف المطلوبة</h3>
             ${orderItemsHtml}
@@ -651,6 +760,7 @@
           <div><h2>تفاصيل الطلب #${esc(order.id.slice(0, 8))}</h2><p class="muted">${orderTime(order).toLocaleString("ar-IQ")} - ${esc(orderTypeLabel(order.orderType))}</p></div>
           <button class="ghost-btn" data-action="closeOrderModal">إغلاق</button>
         </div>
+        ${statusControl}
         <div class="order-detail-grid">
           <div class="panel stack">
             <h3>معلومات الزبون</h3>
@@ -676,7 +786,6 @@
             <p><strong>طريقة التقريب:</strong> ${esc(order.roundingMethod || "nearest_250_up")}</p>
             <p><strong>الخصم:</strong> ${K.fmt(order.discount || 0)}</p>
             <p><strong>الإجمالي النهائي:</strong> ${K.fmt(order.total)}</p>
-            <label>تغيير الحالة<select data-status="${order.id}">${K.orderStatuses.map(s => `<option ${s === status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
           </div>
         </div>
         <div class="panel">
@@ -684,6 +793,24 @@
           ${orderItemsHtml}
         </div>
         <div class="panel"><h3>سجل الحالة</h3>${renderStatusTimeline(order)}</div>
+        <div class="order-detail-grid">
+          <div class="panel stack">
+            <h3>الكابتن / السائق</h3>
+            <p><strong>الاسم:</strong> ${esc(order.driverName || order.captainName || "غير معين")}</p>
+            <p><strong>الهاتف:</strong> ${esc(order.driverPhone || order.captainPhone || "غير متوفر")}</p>
+            <p><strong>وقت التعيين:</strong> ${order.driverAssignedAtMs ? new Date(order.driverAssignedAtMs).toLocaleString("ar-IQ") : "غير معين"}</p>
+          </div>
+          <div class="panel stack">
+            <h3>ملاحظات الإدارة</h3>
+            <p>${esc(order.internalNote || "لا توجد ملاحظات داخلية")}</p>
+            ${(order.internalNotes || []).slice(-4).map(entry => `<small class="muted">${new Date(entry.atMs || Date.now()).toLocaleString("ar-IQ")} - ${esc(entry.by || "admin")}: ${esc(entry.note || "")}</small>`).join("")}
+          </div>
+        </div>
+        <div class="panel stack">
+          <h3>سجل واتساب واستدعاءات الكابتن</h3>
+          <p><strong>رسائل واتساب المرسلة:</strong> ${Object.keys(order.whatsappStatusSent || {}).join("، ") || "لا توجد"}</p>
+          <p><strong>استدعاءات الكابتن:</strong> ${state.captainCalls.filter(call => call.orderId === order.id).length || 0}</p>
+        </div>
         <div class="row-actions order-modal-actions">
           <button class="success-btn" data-accept-order="${order.id}">قبول الطلب</button>
           <button class="danger-btn" data-reject-order="${order.id}">رفض الطلب</button>
@@ -696,6 +823,8 @@
           <button class="ghost-btn" data-print-kitchen="${order.id}">طباعة طلب مطبخ</button>
           <button class="ghost-btn" data-print-invoice="${order.id}">طباعة فاتورة زبون</button>
           <button class="ghost-btn" data-copy-order="${order.id}">نسخ بيانات الطلب</button>
+          <button class="ghost-btn" data-assign-driver="${order.id}">تعيين كابتن</button>
+          <button class="ghost-btn" data-internal-note="${order.id}">حفظ ملاحظة داخلية</button>
           ${order.customer?.phone ? `<button class="ghost-btn" data-copy-phone="${order.id}">نسخ رقم الهاتف</button>` : ""}
           ${mapsUrl ? `<a class="ghost-btn" href="${esc(mapsUrl)}" target="_blank">فتح المسار للسائق</a>` : ""}
           ${order.customer?.phone ? `<a class="ghost-btn" href="tel:${esc(order.customer.phone)}">اتصال</a>` : ""}
@@ -709,7 +838,7 @@
     return `<div class="split">
       <section class="panel">${categoryForm()}</section>
       <section class="panel"><div class="panel-head"><h3>الفئات</h3><div class="row-actions"><button class="ghost-btn" data-action="repairVisibility">إظهار الكل</button><button class="ghost-btn" data-action="newCategory">تفريغ النموذج</button></div></div>
-        <div class="data-grid">${K.sortByOrder(state.categories).map(c => rowCard(c.name, c.details, [
+        <div class="data-grid">${K.sortByOrder(state.categories).map(c => rowCard(c.name, `${c.details || ""}${c.details ? " | " : ""}${categoryVisibilityText(c)}`, [
           ["تعديل", `data-edit-category="${c.id}"`, ""],
           [c.hidden ? "إظهار" : "إخفاء", `data-toggle-category="${c.id}"`, "orange"],
           ["حذف", `data-delete-category="${c.id}"`, "red"]
@@ -719,12 +848,27 @@
   }
 
   function categoryForm(c = state.editing?.type === "category" ? state.editing.data : {}) {
+    const visibility = categoryVisibility(c);
     return `<h3>${c.id ? "تعديل فئة" : "إضافة فئة"}</h3><form class="stack" data-form="category">
       <input id="categoryId" type="hidden" value="${esc(c.id || "")}">
       <div class="form-grid"><label>اسم الفئة<input id="categoryName" value="${esc(c.name || "")}" required></label><label>الترتيب<input id="categoryOrder" type="number" value="${esc(c.order || 1)}"></label></div>
       <div class="form-grid"><label>الأيقونة<input id="categoryIcon" value="${esc(c.icon || "flame")}"></label><label>رابط الصورة<input id="categoryImage" value="${esc(c.imageUrl || "")}"></label><label>رفع صورة من الجهاز<input id="categoryImageFile" type="file" accept="image/*"></label></div>
       <label>الوصف<textarea id="categoryDetails">${esc(c.details || "")}</textarea></label>
       <div class="form-grid"><label><input id="categoryActive" type="checkbox" ${c.active !== false ? "checked" : ""}> مفعلة</label><label><input id="categoryHidden" type="checkbox" ${c.hidden ? "checked" : ""}> مخفية</label><label><input id="categoryOffers" type="checkbox" ${c.isOffers ? "checked" : ""}> فئة عروض</label></div>
+      <section class="visibility-settings">
+        <div class="panel-head">
+          <div><h4>إعدادات الظهور حسب نوع الطلب</h4><p class="muted">حدد أين تظهر هذه الفئة في صفحة الزبون.</p></div>
+          <div class="row-actions">
+            <button class="mini-btn" type="button" data-action="categoryVisibilityAll">تحديد الكل</button>
+            <button class="mini-btn red" type="button" data-action="categoryVisibilityNone">إلغاء الكل</button>
+          </div>
+        </div>
+        <div class="form-grid">
+          <label><input class="category-visibility-input" id="categoryShowDinein" type="checkbox" ${visibility.dinein ? "checked" : ""}> إظهار في تناول داخل المطعم</label>
+          <label><input class="category-visibility-input" id="categoryShowTakeaway" type="checkbox" ${visibility.takeaway ? "checked" : ""}> إظهار في السفري</label>
+          <label><input class="category-visibility-input" id="categoryShowDelivery" type="checkbox" ${visibility.delivery ? "checked" : ""}> إظهار في الدليفري</label>
+        </div>
+      </section>
       <button class="primary-btn" type="submit">حفظ الفئة</button>
     </form>`;
   }
@@ -746,6 +890,22 @@
     </div>`;
   }
 
+  function categoryVisibility(category = {}) {
+    const saved = category.orderVisibility || {};
+    return {
+      dinein: saved.dinein !== undefined ? saved.dinein !== false : category.id === "weight" ? false : true,
+      takeaway: saved.takeaway !== undefined ? saved.takeaway !== false : true,
+      delivery: saved.delivery !== undefined ? saved.delivery !== false : true
+    };
+  }
+  function categoryVisibilityText(category = {}) {
+    const v = categoryVisibility(category);
+    const labels = [];
+    if (v.dinein) labels.push("صالة");
+    if (v.takeaway) labels.push("سفري");
+    if (v.delivery) labels.push("دليفري");
+    return labels.length ? `الظهور: ${labels.join("، ")}` : "مخفية من كل أنواع الطلب";
+  }
   function categoryName(id) { return state.categories.find(c => c.id === id)?.name || id || ""; }
   function itemForm(offersOnly) {
     const item = state.editing?.type === "item" ? state.editing.data : { isOffer: offersOnly, options: [{ id: K.id("opt"), name: "عادي", price: 0, cost: 0, available: true }] };
@@ -833,6 +993,24 @@
       <div class="form-grid"><label>نطاق التوصيل كم<input id="setRadius" type="number" step="0.1" value="${esc(s.deliveryRadiusKm || 7)}"></label><label><input id="setRouteEnabled" type="checkbox" ${s.deliveryRouteEnabled !== false ? "checked" : ""}> حساب التوصيل حسب مسافة الطريق</label><label>مزود الخرائط<select id="setMapProvider"><option value="osrm" ${s.mapProvider === "osrm" ? "selected" : ""}>OSRM مجاني للاختبار</option><option value="openrouteservice" ${s.mapProvider === "openrouteservice" ? "selected" : ""}>OpenRouteService</option><option value="mapbox" ${s.mapProvider === "mapbox" ? "selected" : ""}>Mapbox</option><option value="google" ${s.mapProvider === "google" ? "selected" : ""}>Google Directions</option></select></label></div>
       <div class="form-grid"><label>API Key للخرائط<input id="setMapApiKey" value="${esc(s.mapApiKey || "")}" placeholder="اتركه فارغًا مع OSRM"></label><label>أجور أول 1 كم<input id="setFirstKmFee" type="number" value="${esc(s.deliveryFirstKmFee || s.deliveryFee || 1000)}"></label><label>أجور كل كم إضافي<input id="setExtraKmFee" type="number" value="${esc(s.deliveryExtraKmFee || s.deliveryFeePerKm || 500)}"></label></div>
       <div class="form-grid"><label>طريقة التقريب<select id="setRounding"><option value="none" ${s.deliveryRounding === "none" ? "selected" : ""}>بدون تقريب</option><option value="nearest_250_up" ${!s.deliveryRounding || s.deliveryRounding === "nearest_250_up" ? "selected" : ""}>تقريب لأقرب 250 للأعلى</option><option value="ceil_500" ${s.deliveryRounding === "ceil_500" ? "selected" : ""}>تقريب لأقرب 500 للأعلى</option><option value="ceil_1000" ${s.deliveryRounding === "ceil_1000" ? "selected" : ""}>تقريب لأعلى 1000</option><option value="smart" ${s.deliveryRounding === "smart" ? "selected" : ""}>تقريب ذكي</option></select></label><label>أجور ثابتة احتياطية<input id="setFee" type="number" value="${esc(s.deliveryFee || 0)}"></label><label>نوع الأجور<input id="setFeeType" value="${esc(s.deliveryFeeType || "route")}" readonly></label></div>
+      <div class="panel banner-settings">
+        <h3>إعدادات الطلبات الواردة</h3>
+        <div class="form-grid">
+          <label>عدد الطلبات المعروضة<input id="setOrdersLimit" type="number" min="20" value="${esc(s.ordersLimit || 200)}"></label>
+          <label>مدة تمييز الطلب الجديد بالدقائق<input id="setNewOrderMinutes" type="number" value="${esc(s.newOrderHighlightMinutes || 10)}"></label>
+          <label>ترتيب الطلبات<select id="setOrdersDefaultSort"><option value="newest" ${s.ordersDefaultSort === "newest" ? "selected" : ""}>الأحدث أولًا</option><option value="oldest" ${s.ordersDefaultSort === "oldest" ? "selected" : ""}>الأقدم أولًا</option><option value="status" ${s.ordersDefaultSort === "status" ? "selected" : ""}>حسب الحالة</option></select></label>
+        </div>
+        <div class="form-grid">
+          <label><input id="setShowDoneOrders" type="checkbox" ${s.showDoneOrders !== false ? "checked" : ""}> إظهار الطلبات المكتملة</label>
+          <label><input id="setShowCanceledOrders" type="checkbox" ${s.showCanceledOrders !== false ? "checked" : ""}> إظهار الطلبات الملغية</label>
+          <label><input id="setHighlightNewOrders" type="checkbox" ${s.highlightNewOrders !== false ? "checked" : ""}> تفعيل تمييز الطلبات الجديدة</label>
+        </div>
+        <div class="form-grid">
+          <label><input id="setManualStatusChange" type="checkbox" ${s.manualStatusChange !== false ? "checked" : ""}> السماح بتغيير الحالة يدويًا</label>
+          <label><input id="setAutoPrintOnNew" type="checkbox" ${s.autoPrintOnNew ? "checked" : ""}> طباعة تلقائية عند وصول الطلب</label>
+          <label><input id="setAutoPrintOnAccept" type="checkbox" ${s.autoPrintOnAccept ? "checked" : ""}> طباعة تلقائية عند قبول الطلب</label>
+        </div>
+      </div>
       <button class="primary-btn" type="submit">حفظ الإعدادات</button>
     </form></section>`;
   }
@@ -868,7 +1046,12 @@
       order: num("categoryOrder"),
       active: activeInput ? activeInput.checked : true,
       hidden: hiddenInput ? hiddenInput.checked : false,
-      isOffers: checked("categoryOffers")
+      isOffers: checked("categoryOffers"),
+      orderVisibility: {
+        dinein: checked("categoryShowDinein"),
+        takeaway: checked("categoryShowTakeaway"),
+        delivery: checked("categoryShowDelivery")
+      }
     };
     state.editing = null;
     state.categories = state.categories.filter(category => category.id !== id).concat({ id, ...payload });
@@ -996,6 +1179,15 @@
       deliveryRounding: val("setRounding"),
       mapProvider: val("setMapProvider"),
       mapApiKey: val("setMapApiKey"),
+      ordersLimit: num("setOrdersLimit"),
+      newOrderHighlightMinutes: num("setNewOrderMinutes"),
+      ordersDefaultSort: val("setOrdersDefaultSort"),
+      showDoneOrders: checked("setShowDoneOrders"),
+      showCanceledOrders: checked("setShowCanceledOrders"),
+      highlightNewOrders: checked("setHighlightNewOrders"),
+      manualStatusChange: checked("setManualStatusChange"),
+      autoPrintOnNew: checked("setAutoPrintOnNew"),
+      autoPrintOnAccept: checked("setAutoPrintOnAccept"),
       currency: val("setCurrency") || K.currency
     }, { merge: true });
     state.settings = {
@@ -1038,6 +1230,15 @@
       deliveryRounding: val("setRounding"),
       mapProvider: val("setMapProvider"),
       mapApiKey: val("setMapApiKey"),
+      ordersLimit: num("setOrdersLimit"),
+      newOrderHighlightMinutes: num("setNewOrderMinutes"),
+      ordersDefaultSort: val("setOrdersDefaultSort"),
+      showDoneOrders: checked("setShowDoneOrders"),
+      showCanceledOrders: checked("setShowCanceledOrders"),
+      highlightNewOrders: checked("setHighlightNewOrders"),
+      manualStatusChange: checked("setManualStatusChange"),
+      autoPrintOnNew: checked("setAutoPrintOnNew"),
+      autoPrintOnAccept: checked("setAutoPrintOnAccept"),
       currency: val("setCurrency") || K.currency
     };
     publishMenuSync();
@@ -1182,7 +1383,13 @@
     if (status === "ملغي" || status === "مرفوض") timestamps.canceledAtMs = now;
     const whatsappLog = whatsappStatusPatch(order, status, now);
     await db.collection("orders").doc(orderId).set({ status, source: order.source || "صفحة الزبون", updatedAtMs: now, statusHistory: history, ...timestamps, ...whatsappLog.patch, ...extra }, { merge: true });
-    await db.collection("public_order_status").doc(orderId).set({ status, updatedAtMs: Date.now() }, { merge: true });
+    await db.collection("public_order_status").doc(orderId).set({
+      status,
+      driverName: extra.driverName || order.driverName || order.captainName || "",
+      driverPhone: extra.driverPhone || order.driverPhone || order.captainPhone || "",
+      updatedAtMs: Date.now()
+    }, { merge: true });
+    db.collection("public_customer_orders").doc(orderId).set({ status, updatedAtMs: Date.now() }, { merge: true }).catch(() => {});
     state.dismissedOrderPopups.delete(orderId);
     saveDismissedPopups();
     if (!pendingNewOrders().filter(order => order.id !== orderId).length) stopOrderAlarm();
@@ -1228,6 +1435,41 @@
     const reason = window.prompt("سبب رفض الطلب؟") || "";
     await updateOrderStatus(orderId, "مرفوض", { rejectReason: reason });
     toast("تم رفض الطلب.", "error-notice");
+  }
+  async function assignDriver(orderId) {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+    const current = [order.driverName || order.captainName || "", order.driverPhone || order.captainPhone || ""].filter(Boolean).join(" - ");
+    const value = window.prompt("اكتب اسم الكابتن ورقمه بهذا الشكل: الاسم - الرقم", current);
+    if (value == null) return;
+    const [namePart, phonePart] = value.split("-").map(part => part.trim());
+    const driverName = namePart || "";
+    const driverPhone = phonePart || "";
+    const patch = {
+      driverName,
+      driverPhone,
+      captainName: driverName,
+      captainPhone: driverPhone,
+      driverAssignedAtMs: Date.now(),
+      driverAssignedBy: state.user?.email || "admin"
+    };
+    await db.collection("orders").doc(orderId).set(patch, { merge: true });
+    await db.collection("public_order_status").doc(orderId).set({ driverName, driverPhone, updatedAtMs: Date.now() }, { merge: true });
+    state.orders = state.orders.map(o => o.id === orderId ? { ...o, ...patch } : o);
+    toast("تم تعيين الكابتن.");
+    render();
+  }
+  async function addInternalNote(orderId) {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+    const note = window.prompt("اكتب الملاحظة الداخلية:", order.internalNote || "");
+    if (note == null) return;
+    const entry = { note, atMs: Date.now(), by: state.user?.email || "admin" };
+    const internalNotes = (order.internalNotes || []).concat(entry);
+    await db.collection("orders").doc(orderId).set({ internalNote: note, internalNotes, updatedAtMs: Date.now() }, { merge: true });
+    state.orders = state.orders.map(o => o.id === orderId ? { ...o, internalNote: note, internalNotes } : o);
+    toast("تم حفظ الملاحظة الداخلية.");
+    render();
   }
   function orderPlainText(order) {
     return `${orderWhatsAppText(order)}\nالحالة: ${order.status || "جديد"}`;
@@ -1306,15 +1548,17 @@
 
   app.addEventListener("click", async event => {
     primeAudio();
-    const el = event.target.closest("[data-tab],[data-action],[data-edit-category],[data-toggle-category],[data-delete-category],[data-edit-item],[data-toggle-item],[data-delete-item],[data-edit-addon],[data-toggle-addon],[data-delete-addon],[data-archive],[data-delete-order],[data-print],[data-print-kitchen],[data-print-invoice],[data-print-driver],[data-copy-order],[data-copy-phone],[data-dismiss-order-popup],[data-show-full-details],[data-status-quick],[data-order-open],[data-accept-order],[data-reject-order],[data-export],[data-remove-option]");
+    const el = event.target.closest("[data-tab],[data-action],[data-edit-category],[data-toggle-category],[data-delete-category],[data-edit-item],[data-toggle-item],[data-delete-item],[data-edit-addon],[data-toggle-addon],[data-delete-addon],[data-archive],[data-delete-order],[data-print],[data-print-kitchen],[data-print-invoice],[data-print-driver],[data-copy-order],[data-copy-phone],[data-dismiss-order-popup],[data-show-full-details],[data-status-quick],[data-order-open],[data-accept-order],[data-reject-order],[data-export],[data-remove-option],[data-handle-captain-call],[data-order-tab],[data-assign-driver],[data-internal-note]");
     if (!el) return;
     if (el.dataset.tab) { state.tab = el.dataset.tab; state.editing = null; render(); }
+    if (el.dataset.orderTab) { state.orderFilters.tab = el.dataset.orderTab; render(); }
     if (el.dataset.action === "logout") await services.auth.signOut();
     if (el.dataset.action === "enableAudio") { audioReady = true; }
     if (el.dataset.action === "enableOrderAudio") enableOrderAudio();
     if (el.dataset.action === "stopAlarm") { stopOrderAlarm(); state.alarmMuted = false; saveAlarmSettings(); }
     if (el.dataset.action === "testAlarm") testOrderAlarm();
     if (el.dataset.action === "clearOrderToast") { state.orderToast = ""; render(); }
+    if (el.dataset.action === "refreshOrders") { toast("تم تحديث عرض الطلبات."); render(); }
     if (el.dataset.action === "closeOrderModal") { state.selectedOrderId = ""; state.orderDetailsFull = false; render(); }
     if (el.dataset.action === "requestNotifications" && "Notification" in window) {
       const permission = await Notification.requestPermission();
@@ -1323,6 +1567,10 @@
       toast(permission === "granted" ? "تم تفعيل إشعارات المتصفح." : "لم يتم تفعيل إشعارات المتصفح.", permission === "granted" ? "success-notice" : "error-notice");
     }
     if (el.dataset.action === "newCategory") { state.editing = null; render(); }
+    if (el.dataset.action === "categoryVisibilityAll" || el.dataset.action === "categoryVisibilityNone") {
+      const checked = el.dataset.action === "categoryVisibilityAll";
+      document.querySelectorAll(".category-visibility-input").forEach(input => { input.checked = checked; });
+    }
     if (el.dataset.action === "newItem" || el.dataset.action === "newOffer") { state.editing = null; render(); }
     if (el.dataset.action === "newAddon") { state.editing = null; render(); }
     if (el.dataset.editCategory) { state.editing = { type: "category", data: state.categories.find(c => c.id === el.dataset.editCategory) }; render(); }
@@ -1353,6 +1601,12 @@
     }
     if (el.dataset.acceptOrder) await acceptOrder(el.dataset.acceptOrder);
     if (el.dataset.rejectOrder) await rejectOrder(el.dataset.rejectOrder);
+    if (el.dataset.assignDriver) await assignDriver(el.dataset.assignDriver);
+    if (el.dataset.internalNote) await addInternalNote(el.dataset.internalNote);
+    if (el.dataset.handleCaptainCall) {
+      await db.collection("captain_calls").doc(el.dataset.handleCaptainCall).set({ handled: true, handledAtMs: Date.now(), handledBy: state.user?.email || "admin" }, { merge: true });
+      toast("تمت معالجة استدعاء الكابتن.");
+    }
     if (el.dataset.statusQuick) await updateOrderStatus(el.dataset.statusQuick, el.dataset.nextStatus);
     if (el.dataset.printDriver) printDriverOrder(el.dataset.printDriver);
     if (el.dataset.printKitchen) printKitchenOrder(el.dataset.printKitchen);
@@ -1401,7 +1655,7 @@
     }
     if (event.target.dataset.orderFilter) {
       const key = event.target.dataset.orderFilter;
-      state.orderFilters[key] = key === "lateOnly" ? event.target.checked : event.target.value;
+      state.orderFilters[key] = ["lateOnly", "newOnly"].includes(key) ? event.target.checked : event.target.value;
       render();
     }
     if (event.target.dataset.filter === "from") { state.dateFrom = event.target.value; render(); }
@@ -1448,6 +1702,18 @@
       render();
     });
     db.collection("customers").onSnapshot(s => { state.customers = docData(s); });
+    db.collection("captain_calls").orderBy("createdAtMs", "desc").limit(30).onSnapshot(s => {
+      const previousIds = new Set(state.captainCalls.map(call => call.id));
+      state.captainCalls = docData(s);
+      const fresh = state.captainCalls.find(call => !call.handled && !previousIds.has(call.id) && Date.now() - Number(call.createdAtMs || 0) < 10 * 60 * 1000);
+      if (fresh) {
+        state.orderToast = `الزبون طلب التواصل مع الكابتن للطلب رقم #${fresh.orderShortId || String(fresh.orderId || "").slice(0, 8)}`;
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("استدعاء كابتن", { body: state.orderToast, tag: `captain-${fresh.id}` });
+        }
+      }
+      render();
+    }, error => console.warn("Captain calls snapshot failed", error));
     db.collection("orders").orderBy("createdAtMs", "desc").limit(200).onSnapshot(s => {
       const orders = docData(s);
       const newOrders = orders.filter(isNewOrder);

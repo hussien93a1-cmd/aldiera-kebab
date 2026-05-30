@@ -1,0 +1,46 @@
+{
+  "name": "kabab-aldeera-admin",
+  "version": "1.0.0",
+  "description": "لوحة تحكم كباب الديرة كتطبيق Windows محمول",
+  "main": "electron-main.js",
+  "author": "Kabab AlDeera",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.kabab.aldeera.admin",
+    "productName": "Kabab AlDeera Admin",
+    "asar": true,
+    "files": [
+      "electron-main.js",
+      "admin.html",
+      "login.html",
+      "index.html",
+      "admin.js",
+      "customer.js",
+      "firebase-config.js",
+      "style.css",
+      "manifest.json",
+      "service-worker.js",
+      "icons/**",
+      "firestore-rules.txt",
+      "README.md"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "Kabab-AlDeera-Admin-Portable.exe"
+    },
+    "portable": {
+      "artifactName": "Kabab-AlDeera-Admin-Portable.exe"
+    }
+  }
+}

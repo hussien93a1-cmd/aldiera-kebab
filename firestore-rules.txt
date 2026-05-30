@@ -47,10 +47,23 @@ service cloud.firestore {
       allow update, delete: if signedIn();
     }
 
+    match /public_customer_orders/{doc} {
+      allow read: if true;
+      allow create: if request.resource.data.customerPhone != null
+        && request.resource.data.items is list
+        && request.resource.data.total is number;
+      allow update, delete: if signedIn();
+    }
+
     match /public_popular_items/{doc} {
       allow read: if true;
       allow create, update: if true;
       allow delete: if signedIn();
+    }
+
+    match /captain_calls/{doc} {
+      allow create: if true;
+      allow read, update, delete: if signedIn();
     }
 
     match /customers/{doc} {
