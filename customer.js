@@ -22,6 +22,8 @@
     message: "",
     firebaseError: "",
     isSending: false,
+    popularSales: read("kd_popular_sales", []),
+    previousOrder: read("kd_previous_order", null),
     remoteCategoryCount: 0,
     remoteItemCount: 0,
     route: read("kd_customer_route", null),
@@ -45,15 +47,18 @@
     return K.sortByOrder(state.categories.filter(c => c.deleted !== true && c.active !== false && c.hidden !== true && !(state.orderType === "dinein" && c.id === "weight")));
   }
   function activeItems(categoryId) {
-    return K.sortByOrder(state.items.filter(i => i.deleted !== true && i.categoryId === categoryId && i.visible !== false && i.available !== false && hasAvailableOption(i)));
+    return K.sortByOrder(state.items.filter(i => i.deleted !== true && i.categoryId === categoryId && i.visible !== false));
   }
   function hasAvailableOption(item) {
     const options = item.options || [];
     return options.length === 0 || options.some(o => o.available !== false);
   }
   function itemPrice(item) {
-    const option = (item.options || []).find(o => o.available !== false) || {};
+    const option = (item.options || []).find(o => o.available !== false) || (item.options || [])[0] || {};
     return Number(option.price || 0);
+  }
+  function isItemOrderable(item) {
+    return item.available !== false && hasAvailableOption(item);
   }
   function cleanIraqiPhone(raw) {
     let value = String(raw || "").trim().replace(/[^\d+]/g, "");
@@ -104,6 +109,29 @@
       distance,
       durationMin: Number(state.route?.durationMin || 0)
     };
+  }
+  function timeToMinutes(value) {
+    const [h, m] = String(value || "00:00").split(":").map(Number);
+    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+  }
+  function restaurantOpenInfo(now = new Date()) {
+    if (state.settings.isOpen === false) return { open: false, minutesToOpen: null };
+    const open = timeToMinutes(state.settings.openTime || "00:00");
+    const close = timeToMinutes(state.settings.closeTime || "23:59");
+    const current = now.getHours() * 60 + now.getMinutes();
+    if (open === close) return { open: true, minutesToOpen: 0 };
+    const isOpen = close > open ? current >= open && current < close : current >= open || current < close;
+    let minutesToOpen = 0;
+    if (!isOpen) {
+      minutesToOpen = current < open ? open - current : (24 * 60 - current) + open;
+    }
+    return { open: isOpen, minutesToOpen };
+  }
+  function formatMinutes(minutes) {
+    if (minutes == null) return "";
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h ? `${h} ساعة${m ? ` و ${m} دقيقة` : ""}` : `${m} دقيقة`;
   }
   function routeKey() {
     return [
@@ -257,7 +285,7 @@
         <div class="header-inner">
           <div class="brand">
             ${settings.logoUrl ? `<img class="logo" src="${escapeHtml(settings.logoUrl)}" alt="">` : `<div class="logo">ك</div>`}
-            <div><h1>${escapeHtml(settings.restaurantName || "كباب الديرة")}</h1><p>${settings.isOpen ? "مفتوح الآن 🔥" : "مغلق حالياً"} · ${escapeHtml(settings.address || "")}</p></div>
+            <div><h1>${escapeHtml(settings.restaurantName || "كباب الديرة")}</h1><p>${restaurantOpenInfo().open ? "مفتوح الآن 🔥" : "مغلق حالياً"} · ${escapeHtml(settings.address || "")}</p></div>
           </div>
           <div class="header-actions">
             <button class="icon-btn" data-action="back" title="رجوع">‹</button>
@@ -269,6 +297,7 @@
       ${renderAnnouncement(settings)}
       <section class="page">
         ${state.firebaseError ? `<div class="notice error-notice">${escapeHtml(state.firebaseError)}</div>` : ""}
+        ${renderClosedNotice(settings)}
         ${state.message}
         ${state.view === "items" ? renderItems() : state.view === "checkout" ? renderCheckout(t) : state.view === "track" ? renderTrack() : renderCategories()}
       </section>
@@ -291,6 +320,18 @@
           ${settings.announcementText ? `<p>${escapeHtml(settings.announcementText)}</p>` : ""}
         </div>
       </div>
+    </section>`;
+  }
+
+  function renderClosedNotice(settings) {
+    const info = restaurantOpenInfo();
+    if (info.open) return "";
+    const wait = formatMinutes(info.minutesToOpen);
+    return `<section class="closed-notice">
+      <strong>المطعم مغلق حاليًا</strong>
+      <p>${escapeHtml(settings.closedMessage || "نستقبل طلباتكم قريبًا.")}</p>
+      <span>أوقات الدوام: ${escapeHtml(settings.workingHours || `${settings.openTime || ""} - ${settings.closeTime || ""}`)}</span>
+      ${wait ? `<small>يفتح بعد ${escapeHtml(wait)}</small>` : ""}
     </section>`;
   }
 
@@ -367,7 +408,7 @@
       <footer class="welcome-footer">
         <span>${escapeHtml(phones || settings.whatsappNumber || "")}</span>
         <div class="social-dots" aria-label="روابط التواصل">
-          <a href="${settings.whatsappNumber ? `https://wa.me/${escapeHtml(settings.whatsappNumber)}` : "#"}" target="_blank">واتساب</a>
+          <a href="${restaurantWhatsappUrl() || "#"}" target="_blank">واتساب</a>
           <a href="#" aria-disabled="true">فيسبوك</a>
           <a href="#" aria-disabled="true">إنستغرام</a>
         </div>
@@ -398,6 +439,8 @@
   function renderCategories() {
     const categories = activeCategories();
     return `<div class="category-note-bar">${escapeHtml(state.settings.customerHeroText || "اختر القسم واطلب أشهى مشويات كباب الديرة")}</div>
+      ${renderReorderButton()}
+      ${renderPopularSection()}
       <div class="toolbar"><h2>اختر القسم</h2><span class="muted">التحديثات تظهر مباشرة</span></div>
       <div class="category-grid">${categories.length ? categories.map(c => `
         <button class="category-card luxury-category-card ${c.isOffers ? "offer" : ""}" data-category="${c.id}">
@@ -412,6 +455,33 @@
         </button>`).join("") : `<div class="notice">لا توجد فئات ظاهرة. تأكد من لوحة التحكم أن الفئة مفعلة وغير مخفية، أو ارفع البيانات الأولية من تبويب النسخ الاحتياطي.</div>`}</div>`;
   }
 
+  function popularItems() {
+    if (state.settings.popularEnabled === false) return [];
+    const counts = new Map(state.popularSales.map(row => [row.id, Number(row.quantity || row.count || 0)]));
+    return state.items
+      .filter(item => item.deleted !== true && item.visible !== false && counts.has(item.id))
+      .sort((a, b) => (counts.get(b.id) || 0) - (counts.get(a.id) || 0))
+      .slice(0, 6);
+  }
+
+  function renderPopularSection() {
+    const list = popularItems();
+    if (!list.length) return "";
+    return `<section class="popular-section">
+      <div class="toolbar"><h2>الأكثر طلبًا</h2><span class="muted">حسب الطلبات الحقيقية</span></div>
+      <div class="popular-grid">${list.map(item => `<button class="popular-card ${isItemOrderable(item) ? "" : "unavailable"}" data-item="${item.id}" ${isItemOrderable(item) ? "" : "disabled"}>
+        <strong>${escapeHtml(item.name)}</strong>
+        <span>${K.fmt(itemPrice(item))}</span>
+        ${isItemOrderable(item) ? `<small>اختيار</small>` : `<small>غير متوفر حاليًا</small>`}
+      </button>`).join("")}</div>
+    </section>`;
+  }
+
+  function renderReorderButton() {
+    if (!state.previousOrder?.items?.length) return "";
+    return `<button class="reorder-btn" data-action="reorderLast">اطلب نفس الطلب مرة ثانية</button>`;
+  }
+
   function renderItems() {
     const category = state.categories.find(c => c.id === state.selectedCategory) || {};
     const items = activeItems(state.selectedCategory);
@@ -422,7 +492,8 @@
       <div class="item-list">${items.length ? items.map(item => {
         const price = itemPrice(item);
         const off = K.percentOff(Number(item.oldPrice || 0), price);
-        return item.isOffer ? `<article class="item-card offer-card deera-offer-card">
+        const orderable = isItemOrderable(item);
+        return item.isOffer ? `<article class="item-card offer-card deera-offer-card ${orderable ? "" : "unavailable"}">
           <div>
             <span class="offer-pill">🔥 خصم ${off}%</span>
             <h3>${escapeHtml(item.name)}</h3>
@@ -430,8 +501,8 @@
             <div class="offer-line"><span>السعر القديم</span><strong class="strike">${K.fmt(item.oldPrice || 0)}</strong></div>
             <div class="offer-line"><span>السعر الجديد</span><strong>${K.fmt(price)}</strong></div>
           </div>
-          <button class="warning-btn offer-btn" data-item="${item.id}">إضافة العرض إلى السلة</button>
-        </article>` : `<article class="item-card">
+          <button class="warning-btn offer-btn" data-item="${item.id}" ${orderable ? "" : "disabled"}>${orderable ? "إضافة العرض إلى السلة" : "غير متوفر حاليًا"}</button>
+        </article>` : `<article class="item-card ${orderable ? "" : "unavailable"}">
           <div class="item-main">
             <h3>${escapeHtml(item.name)}</h3>
             <p class="muted">${escapeHtml(item.description || "اختر الحجم أو الخيار المناسب")}</p>
@@ -440,7 +511,8 @@
             <span class="muted">يبدأ من</span>
             <strong class="price">${K.fmt(price)}</strong>
           </div>
-          <button class="item-select-btn ${item.available === false ? "disabled" : ""}" data-item="${item.id}" ${item.available === false ? "disabled" : ""}>${item.available === false ? "غير متوفر" : "اختيار"}</button>
+          ${orderable ? "" : `<span class="unavailable-badge">غير متوفر حاليًا</span>`}
+          <button class="item-select-btn ${orderable ? "" : "disabled"}" data-item="${item.id}" ${orderable ? "" : "disabled"}>${orderable ? "اختيار" : "غير متوفر"}</button>
         </article>`;
       }).join("") : `<div class="notice">لا توجد أصناف متاحة في هذا القسم حاليًا.</div>`}</div>`;
   }
@@ -464,7 +536,7 @@
             </div>
             <label>رابط Google Maps<input data-customer="mapsUrl" value="${escapeHtml(state.customer.mapsUrl)}" placeholder="الصق رابط الموقع وسيتم استخراج الإحداثيات"></label>
             <div class="row-actions">
-              <button class="ghost-btn" data-action="geo">تحديد موقعي</button>
+              <button class="ghost-btn" data-action="geo">حدد موقعي من الخريطة</button>
               <button class="ghost-btn" data-action="calculateRoute">حساب أجرة التوصيل</button>
             </div>
             ${state.routeLoading ? `<div class="notice">جاري حساب المسافة الفعلية عبر الطرق...</div>` : ""}
@@ -520,7 +592,7 @@
     state.errors = {};
     state.customer.phone = cleanIraqiPhone(state.customer.phone);
     if (!state.cart.length) state.errors.cart = "السلة فارغة.";
-    if (!state.settings.isOpen) state.errors.general = state.settings.closedMessage || "المطعم مغلق حاليًا.";
+    if (!restaurantOpenInfo().open) state.errors.general = state.settings.closedMessage || "المطعم مغلق حاليًا.";
     if (!state.customer.name.trim()) state.errors.name = "أدخل اسم الزبون.";
     if (!isValidIraqiPhone(state.customer.phone)) state.errors.phone = "الرجاء إدخال رقم هاتف عراقي صحيح يبدأ بـ 07 أو +9647";
     if (state.orderType === "dinein" && !state.tableNumber.trim()) state.errors.general = "أدخل رقم الطاولة.";
@@ -576,6 +648,8 @@
         createdAtMs: Date.now()
       };
       const doc = await db.collection("orders").add(payload);
+      savePreviousOrder(payload);
+      updatePopularItems(payload).catch(error => console.warn("Popular items update failed", error));
       try {
         await db.collection("public_order_status").doc(doc.id).set({
         status: "جديد",
@@ -608,12 +682,49 @@
     }
   }
 
+  function savePreviousOrder(payload) {
+    state.previousOrder = {
+      items: payload.items,
+      orderType: payload.orderType,
+      tableNumber: payload.tableNumber || "",
+      savedAtMs: Date.now()
+    };
+    localStorage.setItem("kd_previous_order", JSON.stringify(state.previousOrder));
+  }
+
+  async function updatePopularItems(payload) {
+    if (!db) return;
+    const batch = db.batch();
+    (payload.items || []).forEach(item => {
+      const ref = db.collection("public_popular_items").doc(item.itemId || item.id);
+      batch.set(ref, {
+        itemId: item.itemId || item.id,
+        name: item.name || "",
+        categoryId: item.categoryId || "",
+        quantity: firebase.firestore.FieldValue.increment(Number(item.quantity || 1)),
+        count: firebase.firestore.FieldValue.increment(1),
+        updatedAtMs: Date.now()
+      }, { merge: true });
+    });
+    await batch.commit();
+  }
+
   function whatsappPhone(raw) {
     let digits = String(raw || "").replace(/\D/g, "");
     if (digits.startsWith("00")) digits = digits.slice(2);
     if (digits.startsWith("0")) digits = `964${digits.slice(1)}`;
     if (!digits.startsWith("964") && digits.length === 10) digits = `964${digits}`;
     return digits;
+  }
+
+  function restaurantWhatsappNumber() {
+    return whatsappPhone(state.settings.whatsappNumber || "07838468817");
+  }
+
+  function restaurantWhatsappUrl(text = "") {
+    const phone = restaurantWhatsappNumber();
+    if (!phone) return "";
+    return `https://wa.me/${phone}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
   }
 
   function orderTypeLabel(type) {
@@ -651,9 +762,7 @@
   }
 
   function orderWhatsappUrl(orderId, payload) {
-    const phone = whatsappPhone(state.settings.whatsappNumber);
-    if (!phone) return "";
-    return `https://wa.me/${phone}?text=${encodeURIComponent(whatsappText(orderId, payload))}`;
+    return restaurantWhatsappUrl(whatsappText(orderId, payload));
   }
 
   function subscribe() {
@@ -694,6 +803,11 @@
       state.firebaseError = "تعذر قراءة إعدادات المطعم من Firebase. راجع Firestore Rules في ملف README.";
       render();
     });
+    db.collection("public_popular_items").onSnapshot(s => {
+      state.popularSales = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      localStorage.setItem("kd_popular_sales", JSON.stringify(state.popularSales));
+      render();
+    }, () => {});
     subscribeLastOrder();
   }
 
@@ -731,8 +845,22 @@
       render();
       if (state.orderType === "delivery") scheduleRouteCalculation();
     }
+    if (el.dataset.action === "reorderLast") {
+      if (!state.previousOrder?.items?.length) return setMessage("لا يوجد طلب سابق محفوظ", "error-notice");
+      state.cart = state.previousOrder.items.map(item => ({ ...item, cartId: item.cartId || `${item.itemId || item.id}_${item.optionId || Date.now()}` }));
+      state.orderType = state.previousOrder.orderType || state.orderType;
+      state.tableNumber = state.previousOrder.tableNumber || state.tableNumber;
+      state.view = "checkout";
+      setMessage("تمت إضافة آخر طلب إلى السلة. يمكنك تعديله قبل الإرسال.", "success-notice");
+      return;
+    }
     if (el.dataset.category) { state.selectedCategory = el.dataset.category; state.view = "items"; render(); }
-    if (el.dataset.item) { state.selectedItem = state.items.find(i => i.id === el.dataset.item); render(); }
+    if (el.dataset.item) {
+      const item = state.items.find(i => i.id === el.dataset.item);
+      if (!item || !isItemOrderable(item)) return setMessage("هذا الصنف غير متوفر حاليًا.", "error-notice");
+      state.selectedItem = item;
+      render();
+    }
     if (el.dataset.add) {
       const item = state.items.find(i => i.id === el.dataset.add);
       const option = (item.options || []).find(o => o.id === el.dataset.option) || { id: "default", name: "عادي", price: 0 };

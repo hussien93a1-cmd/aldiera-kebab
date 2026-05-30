@@ -810,7 +810,7 @@
     const s = state.settings;
     return `<section class="panel"><form class="stack" data-form="settings">
       <div class="form-grid"><label>اسم المطعم<input id="setName" value="${esc(s.restaurantName)}"></label><label>الشعار URL<input id="setLogo" value="${esc(s.logoUrl)}"></label><label>العملة<input id="setCurrency" value="${esc(s.currency || K.currency)}"></label></div>
-      <div class="form-grid"><label>الهاتف 1<input id="setPhone1" value="${esc((s.phones || [])[0] || "")}"></label><label>الهاتف 2<input id="setPhone2" value="${esc((s.phones || [])[1] || "")}"></label><label>واتساب<input id="setWhatsapp" value="${esc(s.whatsappNumber || "")}"></label></div>
+      <div class="form-grid"><label>الهاتف 1<input id="setPhone1" value="${esc((s.phones || [])[0] || "")}"></label><label>الهاتف 2<input id="setPhone2" value="${esc((s.phones || [])[1] || "")}"></label><label>واتساب الطلبات<input id="setWhatsapp" value="${esc(s.whatsappNumber || "07838468817")}" placeholder="07838468817 أو +9647838468817"></label></div>
       <label>العنوان<input id="setAddress" value="${esc(s.address || "")}"></label>
       <label>شريط أعلى الأقسام<input id="setCustomerHeroText" value="${esc(s.customerHeroText || "اختر القسم واطلب أشهى مشويات كباب الديرة")}"></label>
       <div class="panel banner-settings">
@@ -820,7 +820,15 @@
         <div class="form-grid"><label>رابط صورة البانر<input id="setAnnouncementImage" value="${esc(s.announcementImageUrl || "")}" placeholder="https://..."></label><label>رفع صورة<input id="setAnnouncementImageFile" type="file" accept="image/*"></label></div>
       </div>
       <div class="form-grid"><label><input id="setOpen" type="checkbox" ${s.isOpen ? "checked" : ""}> المطعم مفتوح</label><label><input id="setWhatsappEnabled" type="checkbox" ${s.whatsappEnabled ? "checked" : ""}> إظهار واتساب كخيار إضافي</label><label><input id="setDeliveryEnabled" type="checkbox" ${s.deliveryEnabled ? "checked" : ""}> تفعيل الدليفري</label></div>
+      <div class="form-grid"><label><input id="setPopularEnabled" type="checkbox" ${s.popularEnabled !== false ? "checked" : ""}> إظهار الأكثر طلبًا</label><label>وقت الفتح<input id="setOpenTime" type="time" value="${esc(s.openTime || "12:00")}"></label><label>وقت الإغلاق<input id="setCloseTime" type="time" value="${esc(s.closeTime || "00:00")}"></label></div>
       <div class="form-grid"><label>أوقات الدوام<input id="setHours" value="${esc(s.workingHours || "")}"></label><label>الحد الأدنى<input id="setMinimum" type="number" value="${esc(s.minimumOrder || 0)}"></label><label>رسالة الإغلاق<input id="setClosed" value="${esc(s.closedMessage || "")}"></label></div>
+      <div class="panel banner-settings">
+        <h3>رسائل واتساب لحالة الطلب</h3>
+        <label><input id="setWhatsappStatusEnabled" type="checkbox" ${s.whatsappStatusEnabled !== false ? "checked" : ""}> تفعيل رسائل واتساب عند تغيير الحالة</label>
+        <div class="form-grid"><label>رسالة القبول<input id="setWaAccepted" value="${esc(s.whatsappAcceptedMessage || "")}"></label><label>رسالة الجاهزية<input id="setWaReady" value="${esc(s.whatsappReadyMessage || "")}"></label></div>
+        <div class="form-grid"><label>رسالة مع السائق<input id="setWaDriver" value="${esc(s.whatsappDriverMessage || "")}"></label><label>رسالة الإكمال<input id="setWaCompleted" value="${esc(s.whatsappCompletedMessage || "")}"></label></div>
+        <label>رسالة الإلغاء<input id="setWaCanceled" value="${esc(s.whatsappCanceledMessage || "")}"></label>
+      </div>
       <div class="form-grid"><label>خط عرض المطعم<input id="setLat" type="number" step="any" value="${esc(s.restaurantLat || "")}"></label><label>خط طول المطعم<input id="setLng" type="number" step="any" value="${esc(s.restaurantLng || "")}"></label><label>منطقة المطعم<input id="setArea" value="${esc(s.restaurantArea || "")}"></label></div>
       <div class="form-grid"><label>نطاق التوصيل كم<input id="setRadius" type="number" step="0.1" value="${esc(s.deliveryRadiusKm || 7)}"></label><label><input id="setRouteEnabled" type="checkbox" ${s.deliveryRouteEnabled !== false ? "checked" : ""}> حساب التوصيل حسب مسافة الطريق</label><label>مزود الخرائط<select id="setMapProvider"><option value="osrm" ${s.mapProvider === "osrm" ? "selected" : ""}>OSRM مجاني للاختبار</option><option value="openrouteservice" ${s.mapProvider === "openrouteservice" ? "selected" : ""}>OpenRouteService</option><option value="mapbox" ${s.mapProvider === "mapbox" ? "selected" : ""}>Mapbox</option><option value="google" ${s.mapProvider === "google" ? "selected" : ""}>Google Directions</option></select></label></div>
       <div class="form-grid"><label>API Key للخرائط<input id="setMapApiKey" value="${esc(s.mapApiKey || "")}" placeholder="اتركه فارغًا مع OSRM"></label><label>أجور أول 1 كم<input id="setFirstKmFee" type="number" value="${esc(s.deliveryFirstKmFee || s.deliveryFee || 1000)}"></label><label>أجور كل كم إضافي<input id="setExtraKmFee" type="number" value="${esc(s.deliveryExtraKmFee || s.deliveryFeePerKm || 500)}"></label></div>
@@ -961,7 +969,16 @@
       announcementText: val("setAnnouncementText"),
       announcementImageUrl,
       isOpen: checked("setOpen"),
+      popularEnabled: checked("setPopularEnabled"),
+      openTime: val("setOpenTime"),
+      closeTime: val("setCloseTime"),
       whatsappEnabled: checked("setWhatsappEnabled"),
+      whatsappStatusEnabled: checked("setWhatsappStatusEnabled"),
+      whatsappAcceptedMessage: val("setWaAccepted"),
+      whatsappReadyMessage: val("setWaReady"),
+      whatsappDriverMessage: val("setWaDriver"),
+      whatsappCompletedMessage: val("setWaCompleted"),
+      whatsappCanceledMessage: val("setWaCanceled"),
       deliveryEnabled: checked("setDeliveryEnabled"),
       workingHours: val("setHours"),
       minimumOrder: num("setMinimum"),
@@ -994,7 +1011,16 @@
       announcementText: val("setAnnouncementText"),
       announcementImageUrl,
       isOpen: checked("setOpen"),
+      popularEnabled: checked("setPopularEnabled"),
+      openTime: val("setOpenTime"),
+      closeTime: val("setCloseTime"),
       whatsappEnabled: checked("setWhatsappEnabled"),
+      whatsappStatusEnabled: checked("setWhatsappStatusEnabled"),
+      whatsappAcceptedMessage: val("setWaAccepted"),
+      whatsappReadyMessage: val("setWaReady"),
+      whatsappDriverMessage: val("setWaDriver"),
+      whatsappCompletedMessage: val("setWaCompleted"),
+      whatsappCanceledMessage: val("setWaCanceled"),
       deliveryEnabled: checked("setDeliveryEnabled"),
       workingHours: val("setHours"),
       minimumOrder: num("setMinimum"),
@@ -1154,13 +1180,42 @@
     if (status === "مع السائق") timestamps.driverAtMs = now;
     if (status === "تم التسليم" || status === "مكتمل") timestamps.completedAtMs = now;
     if (status === "ملغي" || status === "مرفوض") timestamps.canceledAtMs = now;
-    await db.collection("orders").doc(orderId).set({ status, source: order.source || "صفحة الزبون", updatedAtMs: now, statusHistory: history, ...timestamps, ...extra }, { merge: true });
+    const whatsappLog = whatsappStatusPatch(order, status, now);
+    await db.collection("orders").doc(orderId).set({ status, source: order.source || "صفحة الزبون", updatedAtMs: now, statusHistory: history, ...timestamps, ...whatsappLog.patch, ...extra }, { merge: true });
     await db.collection("public_order_status").doc(orderId).set({ status, updatedAtMs: Date.now() }, { merge: true });
     state.dismissedOrderPopups.delete(orderId);
     saveDismissedPopups();
     if (!pendingNewOrders().filter(order => order.id !== orderId).length) stopOrderAlarm();
-    state.orders = state.orders.map(order => order.id === orderId ? { ...order, status, statusHistory: history, ...timestamps, ...extra } : order);
+    state.orders = state.orders.map(order => order.id === orderId ? { ...order, status, statusHistory: history, ...timestamps, ...whatsappLog.patch, ...extra } : order);
+    if (whatsappLog.url) window.open(whatsappLog.url, "_blank");
     render();
+  }
+
+  function whatsappStatusMessage(status) {
+    const messages = {
+      "مقبول": state.settings.whatsappAcceptedMessage,
+      "قيد التحضير": state.settings.whatsappAcceptedMessage,
+      "جاهز": state.settings.whatsappReadyMessage,
+      "مع السائق": state.settings.whatsappDriverMessage,
+      "تم التسليم": state.settings.whatsappCompletedMessage,
+      "مكتمل": state.settings.whatsappCompletedMessage,
+      "ملغي": state.settings.whatsappCanceledMessage,
+      "مرفوض": state.settings.whatsappCanceledMessage
+    };
+    return messages[status] || "";
+  }
+
+  function whatsappStatusPatch(order, status, atMs) {
+    if (state.settings.whatsappStatusEnabled === false) return { patch: {}, url: "" };
+    const phone = whatsappPhone(order.customer?.phone);
+    const message = whatsappStatusMessage(status);
+    const sent = order.whatsappStatusSent || {};
+    if (!phone || !message || sent[status]) return { patch: {}, url: "" };
+    const text = `${message}\nرقم الطلب: #${String(order.id || "").slice(0, 8)}\nكباب الديرة`;
+    return {
+      patch: { whatsappStatusSent: { ...sent, [status]: atMs } },
+      url: `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+    };
   }
   async function acceptOrder(orderId) {
     await updateOrderStatus(orderId, "مقبول");

@@ -47,6 +47,12 @@ service cloud.firestore {
       allow update, delete: if signedIn();
     }
 
+    match /public_popular_items/{doc} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if signedIn();
+    }
+
     match /customers/{doc} {
       allow create: if true;
       allow read, update, delete: if signedIn();

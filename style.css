@@ -582,6 +582,17 @@ textarea { min-height: 88px; resize: vertical; }
 .banner-settings { background: #fffaf5; border-color: #fed7aa; }
 .delivery-route-card { display: grid; gap: 6px; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0; background: #f0fdf4; color: #14532d; font-weight: 900; }
 .delivery-route-card span { color: #166534; font-size: 13px; }
+.closed-notice { display: grid; gap: 6px; padding: 14px; margin-bottom: 12px; border-radius: 16px; background: #fff1f2; border: 1px solid #fecdd3; color: #7f1d1d; font-weight: 900; }
+.closed-notice p, .closed-notice span, .closed-notice small { margin: 0; color: #991b1b; font-weight: 800; }
+.reorder-btn { width: 100%; min-height: 48px; margin-bottom: 12px; border-radius: 16px; background: #1c1917; color: #fff; font-weight: 900; box-shadow: 0 14px 28px rgba(28,25,23,.14); }
+.popular-section { display: grid; gap: 10px; margin-bottom: 16px; }
+.popular-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.popular-card { display: grid; gap: 6px; text-align: right; padding: 14px; min-height: 108px; border-radius: 18px; background: linear-gradient(135deg, #fff, #fff7ed); border: 1px solid #fed7aa; box-shadow: 0 10px 24px rgba(120,53,15,.07); }
+.popular-card strong { color: #1c1917; font-size: 15px; }
+.popular-card span { color: #ea580c; font-weight: 900; }
+.popular-card small { color: #78716c; font-weight: 900; }
+.unavailable { opacity: .58; filter: grayscale(.25); }
+.unavailable-badge { grid-area: price; display: inline-flex; width: max-content; border-radius: 999px; padding: 5px 10px; background: #fee2e2; color: #991b1b; font-size: 12px; font-weight: 900; }
 
 .admin-body { background: #f8fafc; }
 .login-layout { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
