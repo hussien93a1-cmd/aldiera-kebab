@@ -406,6 +406,7 @@
       ${renderNewOrderPopup()}
       ${renderOrderDetailsModal()}
     `;
+    if (state.tab === "settings") requestAnimationFrame(applyItemCardPreview);
   }
 
   function renderTab() {
@@ -966,6 +967,105 @@
     return `<div class="row-card"><div class="row-head"><div><strong>${esc(title)}</strong><p class="muted">${esc(subtitle || "")}</p></div></div><div class="row-actions">${actions.map(([label, attrs, color]) => `<button class="mini-btn ${color}" ${attrs}>${label}</button>`).join("")}</div></div>`;
   }
 
+  const itemCardPresets = {
+    luxury_dark: {
+      background: "#111827", text: "#fff7ed", description: "#ffedd5", price: "#fbbf24", badgeBg: "#f97316", badgeText: "#ffffff", buttonBg: "#f97316", buttonText: "#ffffff", border: "#fbbf24", shadowColor: "#0f172a"
+    },
+    modern_blue: {
+      background: "#f8fcff", text: "#0f172a", description: "#475569", price: "#0284c7", badgeBg: "#38bdf8", badgeText: "#083344", buttonBg: "#0ea5e9", buttonText: "#ffffff", border: "#7dd3fc", shadowColor: "#0ea5e9"
+    },
+    minimal_white: {
+      background: "#ffffff", text: "#111827", description: "#6b7280", price: "#111827", badgeBg: "#f3f4f6", badgeText: "#111827", buttonBg: "#111827", buttonText: "#ffffff", border: "#e5e7eb", shadowColor: "#9ca3af"
+    },
+    premium_orange: {
+      background: "#fff7ed", text: "#1c1917", description: "#78716c", price: "#ea580c", badgeBg: "#f97316", badgeText: "#ffffff", buttonBg: "#ea580c", buttonText: "#ffffff", border: "#fdba74", shadowColor: "#ea580c"
+    },
+    indigo_pro: {
+      background: "#eef2ff", text: "#111827", description: "#475569", price: "#4f46e5", badgeBg: "#4f46e5", badgeText: "#ffffff", buttonBg: "#f97316", buttonText: "#ffffff", border: "#818cf8", shadowColor: "#4f46e5"
+    }
+  };
+
+  function itemCardThemeSettings() {
+    return { ...(K.settingsSeed.itemCardTheme || {}), ...(state.settings.itemCardTheme || {}) };
+  }
+
+  function itemCardThemeInputs(theme = itemCardThemeSettings()) {
+    return `<div class="form-grid">
+          <label>لون خلفية البطاقة<input id="setItemCardBg" data-item-card-theme="background" type="color" value="${esc(theme.background || "#111827")}"><input id="setItemCardBgHex" data-item-card-theme="background" value="${esc(theme.background || "#111827")}"></label>
+          <label>لون اسم الصنف<input id="setItemCardText" data-item-card-theme="text" type="color" value="${esc(theme.text || "#fff7ed")}"><input id="setItemCardTextHex" data-item-card-theme="text" value="${esc(theme.text || "#fff7ed")}"></label>
+          <label>لون الوصف<input id="setItemCardDesc" data-item-card-theme="description" type="color" value="${esc(theme.description || "#ffedd5")}"><input id="setItemCardDescHex" data-item-card-theme="description" value="${esc(theme.description || "#ffedd5")}"></label>
+        </div>
+        <div class="form-grid">
+          <label>لون السعر<input id="setItemCardPrice" data-item-card-theme="price" type="color" value="${esc(theme.price || "#fbbf24")}"><input id="setItemCardPriceHex" data-item-card-theme="price" value="${esc(theme.price || "#fbbf24")}"></label>
+          <label>لون البادج<input id="setItemCardBadgeBg" data-item-card-theme="badgeBg" type="color" value="${esc(theme.badgeBg || "#f97316")}"><input id="setItemCardBadgeBgHex" data-item-card-theme="badgeBg" value="${esc(theme.badgeBg || "#f97316")}"></label>
+          <label>لون نص البادج<input id="setItemCardBadgeText" data-item-card-theme="badgeText" type="color" value="${esc(theme.badgeText || "#ffffff")}"><input id="setItemCardBadgeTextHex" data-item-card-theme="badgeText" value="${esc(theme.badgeText || "#ffffff")}"></label>
+        </div>
+        <div class="form-grid">
+          <label>لون زر الإضافة<input id="setItemCardButtonBg" data-item-card-theme="buttonBg" type="color" value="${esc(theme.buttonBg || "#f97316")}"><input id="setItemCardButtonBgHex" data-item-card-theme="buttonBg" value="${esc(theme.buttonBg || "#f97316")}"></label>
+          <label>لون نص الزر<input id="setItemCardButtonText" data-item-card-theme="buttonText" type="color" value="${esc(theme.buttonText || "#ffffff")}"><input id="setItemCardButtonTextHex" data-item-card-theme="buttonText" value="${esc(theme.buttonText || "#ffffff")}"></label>
+          <label>لون الحدود<input id="setItemCardBorder" data-item-card-theme="border" type="color" value="${esc(theme.border || "#fbbf24")}"><input id="setItemCardBorderHex" data-item-card-theme="border" value="${esc(theme.border || "#fbbf24")}"></label>
+        </div>
+        <div class="form-grid">
+          <label><input id="setItemCardBorderEnabled" data-item-card-theme="borderEnabled" type="checkbox" ${theme.borderEnabled !== false ? "checked" : ""}> تفعيل الحدود</label>
+          <label>سمك الحدود<input id="setItemCardBorderWidth" data-item-card-theme="borderWidth" type="number" min="0" max="8" value="${esc(theme.borderWidth ?? 1)}"></label>
+          <label>Border Radius<input id="setItemCardRadius" data-item-card-theme="radius" type="range" min="0" max="42" value="${esc(theme.radius ?? 26)}"><span class="muted" id="itemCardRadiusValue">${esc(theme.radius ?? 26)}px</span></label>
+        </div>
+        <div class="form-grid">
+          <label><input id="setItemCardShadowEnabled" data-item-card-theme="shadowEnabled" type="checkbox" ${theme.shadowEnabled !== false ? "checked" : ""}> تفعيل الظل</label>
+          <label>لون الظل<input id="setItemCardShadowColor" data-item-card-theme="shadowColor" type="color" value="${esc(theme.shadowColor || "#0f172a")}"></label>
+          <label>قوة الظل<input id="setItemCardShadowStrength" data-item-card-theme="shadowStrength" type="range" min="0" max="60" value="${esc(theme.shadowStrength ?? 24)}"><span class="muted" id="itemCardShadowValue">${esc(theme.shadowStrength ?? 24)}%</span></label>
+        </div>
+        <div class="form-grid">
+          <label>Blur الظل<input id="setItemCardShadowBlur" data-item-card-theme="shadowBlur" type="number" min="0" max="90" value="${esc(theme.shadowBlur ?? 42)}"></label>
+          <label>ارتفاع الظل<input id="setItemCardShadowY" data-item-card-theme="shadowY" type="number" min="-20" max="60" value="${esc(theme.shadowY ?? 18)}"></label>
+          <label><input id="setItemCardGlass" data-item-card-theme="glass" type="checkbox" ${theme.glass !== false ? "checked" : ""}> Glass Effect</label>
+        </div>
+        <div class="form-grid">
+          <label><input id="setItemCardGradient" data-item-card-theme="gradient" type="checkbox" ${theme.gradient !== false ? "checked" : ""}> Gradient Background</label>
+          <label><input id="setItemCardGlow" data-item-card-theme="glow" type="checkbox" ${theme.glow !== false ? "checked" : ""}> Glow Effect</label>
+          <label><input id="setItemCardHoverScale" data-item-card-theme="hoverScale" type="checkbox" ${theme.hoverScale !== false ? "checked" : ""}> Hover Scale</label>
+        </div>
+        <label><input id="setItemCardBorderGlow" data-item-card-theme="borderGlow" type="checkbox" ${theme.borderGlow !== false ? "checked" : ""}> Border Glow عند المرور</label>`;
+  }
+
+  function renderItemCardCustomizer() {
+    const theme = itemCardThemeSettings();
+    return `<div class="panel theme-settings-panel item-card-customizer">
+        <h3>تخصيص ألوان بطاقات الأصناف</h3>
+        <div class="form-grid">
+          <label>ثيم جاهز
+            <select id="setItemCardPreset" data-item-card-theme="preset">
+              <option value="luxury_dark" ${(theme.preset || "luxury_dark") === "luxury_dark" ? "selected" : ""}>Luxury Dark</option>
+              <option value="modern_blue" ${theme.preset === "modern_blue" ? "selected" : ""}>Modern Blue</option>
+              <option value="minimal_white" ${theme.preset === "minimal_white" ? "selected" : ""}>Minimal White</option>
+              <option value="premium_orange" ${theme.preset === "premium_orange" ? "selected" : ""}>Premium Orange</option>
+              <option value="indigo_pro" ${theme.preset === "indigo_pro" ? "selected" : ""}>Indigo Professional</option>
+              <option value="custom" ${theme.preset === "custom" ? "selected" : ""}>Custom</option>
+            </select>
+          </label>
+          <label>تصدير الثيم<input id="itemCardThemeExport" readonly value='${esc(JSON.stringify(theme))}'></label>
+          <label>استيراد ثيم<input id="itemCardThemeImport" placeholder='{"background":"#111827"}'></label>
+        </div>
+        ${itemCardThemeInputs(theme)}
+        <div class="item-card-live-preview" id="itemCardThemePreview">
+          <div class="item-preview-card">
+            <span class="item-card-number">14</span>
+            <span class="item-popular-badge">🔥 الأكثر طلباً</span>
+            <span class="item-deco-icon">♨</span>
+            <span class="item-curve-line"></span>
+            <div class="item-main"><h3>ريش غنم</h3><p>ريش غنم مشوية على الفحم</p></div>
+            <div class="item-price-block"><span>السعر</span><strong>3,500 د.ع</strong></div>
+            <button type="button">➕ إضافة</button>
+          </div>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="ghost-btn" data-action="resetItemCardTheme">إعادة للوضع الافتراضي</button>
+          <button type="button" class="warning-btn" data-action="importItemCardTheme">استيراد الثيم</button>
+        </div>
+        <p class="muted">أي تغيير يظهر في المعاينة مباشرة، وبعد الحفظ يطبق على صفحة الزبون من Firebase بدون تعديل الكود.</p>
+      </div>`;
+  }
+
   function renderSettings() {
     const s = state.settings;
     return `<section class="panel"><form class="stack" data-form="settings">
@@ -1004,6 +1104,7 @@
         </label>
         <p class="muted">خيار Premium بدون صور يخفي صور الأصناف من صفحة الزبون ويستخدم تصميمًا أحمر فاخرًا مع عناصر زخرفية فقط.</p>
       </div>
+      ${renderItemCardCustomizer()}
       <div class="panel banner-settings">
         <h3>بانر أعلى صفحة الزبون</h3>
         <div class="form-grid"><label><input id="setAnnouncementEnabled" type="checkbox" ${s.announcementEnabled ? "checked" : ""}> تفعيل البانر</label><label>عنوان البانر<input id="setAnnouncementTitle" value="${esc(s.announcementTitle || "")}" placeholder="مثال: تهنئة بمناسبة العيد"></label></div>
@@ -1168,6 +1269,132 @@
     toast("تم حفظ الإضافة.");
   }
 
+  function colorValue(id, fallback) {
+    const value = val(id);
+    return /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
+  }
+
+  function collectItemCardTheme() {
+    return {
+      preset: val("setItemCardPreset") || "custom",
+      background: colorValue("setItemCardBgHex", colorValue("setItemCardBg", "#111827")),
+      text: colorValue("setItemCardTextHex", colorValue("setItemCardText", "#fff7ed")),
+      description: colorValue("setItemCardDescHex", colorValue("setItemCardDesc", "#ffedd5")),
+      price: colorValue("setItemCardPriceHex", colorValue("setItemCardPrice", "#fbbf24")),
+      badgeBg: colorValue("setItemCardBadgeBgHex", colorValue("setItemCardBadgeBg", "#f97316")),
+      badgeText: colorValue("setItemCardBadgeTextHex", colorValue("setItemCardBadgeText", "#ffffff")),
+      buttonBg: colorValue("setItemCardButtonBgHex", colorValue("setItemCardButtonBg", "#f97316")),
+      buttonText: colorValue("setItemCardButtonTextHex", colorValue("setItemCardButtonText", "#ffffff")),
+      border: colorValue("setItemCardBorderHex", colorValue("setItemCardBorder", "#fbbf24")),
+      borderWidth: num("setItemCardBorderWidth"),
+      borderEnabled: checked("setItemCardBorderEnabled"),
+      radius: num("setItemCardRadius"),
+      shadowColor: colorValue("setItemCardShadowColor", "#0f172a"),
+      shadowBlur: num("setItemCardShadowBlur"),
+      shadowY: num("setItemCardShadowY"),
+      shadowStrength: num("setItemCardShadowStrength"),
+      shadowEnabled: checked("setItemCardShadowEnabled"),
+      glass: checked("setItemCardGlass"),
+      gradient: checked("setItemCardGradient"),
+      glow: checked("setItemCardGlow"),
+      hoverScale: checked("setItemCardHoverScale"),
+      borderGlow: checked("setItemCardBorderGlow")
+    };
+  }
+
+  function hexToRgb(hex) {
+    const clean = String(hex || "").replace("#", "");
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return "15,23,42";
+    const value = parseInt(clean, 16);
+    return `${(value >> 16) & 255},${(value >> 8) & 255},${value & 255}`;
+  }
+
+  function applyItemCardPreview() {
+    const preview = document.getElementById("itemCardThemePreview");
+    if (!preview) return;
+    const theme = collectItemCardTheme();
+    const card = preview.querySelector(".item-preview-card");
+    if (!card) return;
+    const shadowAlpha = theme.shadowEnabled ? Math.max(0, Math.min(100, theme.shadowStrength || 0)) / 100 : 0;
+    card.style.setProperty("--preview-bg", theme.background);
+    card.style.setProperty("--preview-bg-rgb", hexToRgb(theme.background));
+    card.style.setProperty("--preview-text", theme.text);
+    card.style.setProperty("--preview-desc", theme.description);
+    card.style.setProperty("--preview-price", theme.price);
+    card.style.setProperty("--preview-badge-bg", theme.badgeBg);
+    card.style.setProperty("--preview-badge-text", theme.badgeText);
+    card.style.setProperty("--preview-button-bg", theme.buttonBg);
+    card.style.setProperty("--preview-button-text", theme.buttonText);
+    card.style.setProperty("--preview-border", theme.border);
+    card.style.setProperty("--preview-border-width", theme.borderEnabled ? `${theme.borderWidth || 1}px` : "0px");
+    card.style.setProperty("--preview-radius", `${theme.radius || 26}px`);
+    card.style.setProperty("--preview-shadow", `0 ${theme.shadowY || 18}px ${theme.shadowBlur || 42}px rgba(${hexToRgb(theme.shadowColor)}, ${shadowAlpha})`);
+    const radiusValue = document.getElementById("itemCardRadiusValue");
+    if (radiusValue) radiusValue.textContent = `${theme.radius || 0}px`;
+    const shadowValue = document.getElementById("itemCardShadowValue");
+    if (shadowValue) shadowValue.textContent = `${theme.shadowStrength || 0}%`;
+    const exportInput = document.getElementById("itemCardThemeExport");
+    if (exportInput) exportInput.value = JSON.stringify(theme);
+  }
+
+  function syncItemCardColorPair(key, value) {
+    const map = {
+      background: ["setItemCardBg", "setItemCardBgHex"],
+      text: ["setItemCardText", "setItemCardTextHex"],
+      description: ["setItemCardDesc", "setItemCardDescHex"],
+      price: ["setItemCardPrice", "setItemCardPriceHex"],
+      badgeBg: ["setItemCardBadgeBg", "setItemCardBadgeBgHex"],
+      badgeText: ["setItemCardBadgeText", "setItemCardBadgeTextHex"],
+      buttonBg: ["setItemCardButtonBg", "setItemCardButtonBgHex"],
+      buttonText: ["setItemCardButtonText", "setItemCardButtonTextHex"],
+      border: ["setItemCardBorder", "setItemCardBorderHex"]
+    };
+    const ids = map[key];
+    if (!ids || !/^#[0-9a-fA-F]{6}$/.test(value)) return;
+    ids.forEach(id => {
+      const input = document.getElementById(id);
+      if (input) input.value = value;
+    });
+  }
+
+  function applyItemCardPreset(presetId) {
+    const preset = itemCardPresets[presetId];
+    if (!preset) return;
+    Object.entries(preset).forEach(([key, value]) => syncItemCardColorPair(key, value));
+    const presetInput = document.getElementById("setItemCardPreset");
+    if (presetInput) presetInput.value = presetId;
+    applyItemCardPreview();
+  }
+
+  function resetItemCardTheme() {
+    const defaults = K.settingsSeed.itemCardTheme || {};
+    Object.entries(defaults).forEach(([key, value]) => {
+      syncItemCardColorPair(key, value);
+      const input = document.querySelector(`[data-item-card-theme="${key}"]`);
+      if (!input) return;
+      if (input.type === "checkbox") input.checked = value !== false;
+      else input.value = value;
+    });
+    applyItemCardPreview();
+  }
+
+  function importItemCardTheme() {
+    try {
+      const imported = JSON.parse(val("itemCardThemeImport") || "{}");
+      Object.entries(imported).forEach(([key, value]) => {
+        syncItemCardColorPair(key, value);
+        const input = document.querySelector(`[data-item-card-theme="${key}"]`);
+        if (!input) return;
+        if (input.type === "checkbox") input.checked = value !== false;
+        else input.value = value;
+      });
+      applyItemCardPreview();
+      toast("تم استيراد ثيم البطاقة.");
+    } catch (error) {
+      toast("صيغة JSON غير صحيحة.", "error-notice");
+    }
+  }
+
   async function saveSettings() {
     const bannerFile = document.getElementById("setAnnouncementImageFile")?.files?.[0];
     const announcementImageUrl = bannerFile ? await K.uploadImage(bannerFile, "settings") : val("setAnnouncementImage");
@@ -1180,6 +1407,7 @@
       customerHeroText: val("setCustomerHeroText"),
       customerTheme: val("setCustomerTheme") || "orange",
       itemCardStyle: val("setItemCardStyle") || "image",
+      itemCardTheme: collectItemCardTheme(),
       themeCustom: {
         primary: val("setThemePrimary") || "#38BDF8",
         secondary: val("setThemeSecondary") || "#0EA5E9",
@@ -1242,6 +1470,7 @@
       customerHeroText: val("setCustomerHeroText"),
       customerTheme: val("setCustomerTheme") || "orange",
       itemCardStyle: val("setItemCardStyle") || "image",
+      itemCardTheme: collectItemCardTheme(),
       themeCustom: {
         primary: val("setThemePrimary") || "#38BDF8",
         secondary: val("setThemeSecondary") || "#0EA5E9",
@@ -1687,6 +1916,8 @@
     }
     if (el.dataset.action === "clearMenuData" && confirm("هل أنت متأكد؟ سيتم حذف الفئات والأصناف والخيارات والعروض والإضافات فقط، ولن يتم حذف الطلبات.")) await clearMenuData();
     if (el.dataset.action === "repairVisibility") await repairVisibility();
+    if (el.dataset.action === "resetItemCardTheme") resetItemCardTheme();
+    if (el.dataset.action === "importItemCardTheme") importItemCardTheme();
     if (el.dataset.action === "downloadBackup") backupData();
     if (el.dataset.action === "restoreBackup") await restoreBackup();
     if (el.dataset.export) exportReport(el.dataset.export);
@@ -1694,6 +1925,10 @@
 
   app.addEventListener("change", async event => {
     primeAudio();
+    if (event.target.dataset.itemCardTheme) {
+      if (event.target.id === "setItemCardPreset") applyItemCardPreset(event.target.value);
+      else applyItemCardPreview();
+    }
     if (event.target.dataset.status) {
       await updateOrderStatus(event.target.dataset.status, event.target.value);
     }
@@ -1713,6 +1948,14 @@
     }
     if (event.target.dataset.filter === "from") { state.dateFrom = event.target.value; render(); }
     if (event.target.dataset.filter === "to") { state.dateTo = event.target.value; render(); }
+  });
+
+  app.addEventListener("input", event => {
+    if (!event.target.dataset.itemCardTheme) return;
+    syncItemCardColorPair(event.target.dataset.itemCardTheme, event.target.value);
+    const preset = document.getElementById("setItemCardPreset");
+    if (preset && event.target.id !== "setItemCardPreset") preset.value = "custom";
+    applyItemCardPreview();
   });
 
   app.addEventListener("submit", async event => {

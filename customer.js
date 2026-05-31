@@ -5,6 +5,7 @@
   const K = window.KABAB;
   const services = K.firebaseReady();
   const db = services && services.db;
+  let deferredInstallPrompt = null;
   const state = {
     categories: read("kd_cached_categories", []),
     items: read("kd_cached_items", []),
@@ -36,6 +37,7 @@
     routeLoading: false,
     routeError: "",
     routeTimer: null,
+    canInstallApp: false,
     errors: {}
   };
 
@@ -383,6 +385,27 @@
     return `item-card-style-${settings.itemCardStyle || "image"}`;
   }
 
+  function itemCardTheme(settings = state.settings) {
+    const base = K.settingsSeed.itemCardTheme || {};
+    return { ...base, ...(settings.itemCardTheme || {}) };
+  }
+
+  function hexToRgbParts(hex, fallback = "15,23,42") {
+    const clean = String(hex || "").replace("#", "").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(clean)) return fallback;
+    const value = parseInt(clean, 16);
+    return `${(value >> 16) & 255},${(value >> 8) & 255},${value & 255}`;
+  }
+
+  function isStandaloneApp() {
+    return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+  }
+
+  function renderInstallButton(extraClass = "") {
+    if (!state.canInstallApp || isStandaloneApp()) return "";
+    return `<button class="install-app-btn ${extraClass}" data-action="installApp">تثبيت التطبيق</button>`;
+  }
+
   function applyCustomerTheme(settings = state.settings) {
     const t = customerThemeTokens(settings);
     app.style.setProperty("--amber", t.secondary);
@@ -400,6 +423,29 @@
     app.style.setProperty("--theme-text", t.text);
     app.style.setProperty("--theme-accent", t.accent);
     app.style.setProperty("--theme-hover", t.hover);
+    const cardTheme = itemCardTheme(settings);
+    const shadowStrength = Math.max(0, Math.min(100, Number(cardTheme.shadowStrength ?? 24))) / 100;
+    app.style.setProperty("--item-card-bg", safeColor(cardTheme.background, "#111827"));
+    app.style.setProperty("--item-card-bg-rgb", hexToRgbParts(cardTheme.background, "17,24,39"));
+    app.style.setProperty("--item-card-text", safeColor(cardTheme.text, "#fff7ed"));
+    app.style.setProperty("--item-card-desc", safeColor(cardTheme.description, "#ffedd5"));
+    app.style.setProperty("--item-card-price", safeColor(cardTheme.price, "#fbbf24"));
+    app.style.setProperty("--item-card-badge-bg", safeColor(cardTheme.badgeBg, "#f97316"));
+    app.style.setProperty("--item-card-badge-text", safeColor(cardTheme.badgeText, "#ffffff"));
+    app.style.setProperty("--item-card-button-bg", safeColor(cardTheme.buttonBg, "#f97316"));
+    app.style.setProperty("--item-card-button-text", safeColor(cardTheme.buttonText, "#ffffff"));
+    app.style.setProperty("--item-card-border", safeColor(cardTheme.border, "#fbbf24"));
+    app.style.setProperty("--item-card-border-width", cardTheme.borderEnabled === false ? "0px" : `${Math.max(0, Number(cardTheme.borderWidth || 1))}px`);
+    app.style.setProperty("--item-card-radius", `${Math.max(0, Number(cardTheme.radius || 26))}px`);
+    app.style.setProperty("--item-card-shadow-color-rgb", hexToRgbParts(cardTheme.shadowColor, "15,23,42"));
+    app.style.setProperty("--item-card-shadow-blur", `${Math.max(0, Number(cardTheme.shadowBlur || 42))}px`);
+    app.style.setProperty("--item-card-shadow-y", `${Number(cardTheme.shadowY || 18)}px`);
+    app.style.setProperty("--item-card-shadow-alpha", cardTheme.shadowEnabled === false ? "0" : String(shadowStrength));
+    app.style.setProperty("--item-card-glow-mix", cardTheme.glow === false ? "0%" : "28%");
+    app.style.setProperty("--item-card-hover-scale", cardTheme.hoverScale === false ? "1" : "1.012");
+    app.style.setProperty("--item-card-gradient-mix", cardTheme.gradient === false ? "0%" : "32%");
+    app.style.setProperty("--item-card-border-glow-mix", cardTheme.borderGlow === false ? "0%" : "42%");
+    app.style.setProperty("--item-card-glass-alpha", cardTheme.glass === false ? ".02" : ".1");
     document.body.style.backgroundColor = t.background;
   }
 
@@ -428,8 +474,11 @@
             <div><h1>${escapeHtml(settings.restaurantName || "كباب الديرة")}</h1><p>${restaurantOpenInfo().open ? "مفتوح الآن 🔥" : "مغلق حالياً"} · ${escapeHtml(settings.address || "")}</p></div>
           </div>
           <div class="header-actions">
-            <button class="icon-btn" data-action="back" title="رجوع">‹</button>
-            <button class="icon-btn" data-action="track" title="تتبع الطلب">⌁</button>
+            <button class="header-action-btn" data-action="back" title="رجوع"><span>‹</span><strong>رجوع</strong></button>
+            <button class="header-action-btn" data-action="track" title="تتبع الطلب"><span>⌁</span><strong>تتبع الطلب</strong></button>
+            <button class="header-action-btn" data-action="orders" title="طلباتك"><span>▤</span><strong>طلباتك</strong></button>
+            <button class="header-action-btn" data-action="profile" title="حسابي"><span>☻</span><strong>حسابي</strong></button>
+            ${renderInstallButton("header-install")}
             <button class="ghost-btn" data-action="chooseType">نوع الطلب</button>
           </div>
         </div>
@@ -437,10 +486,11 @@
       ${renderAnnouncement(settings)}
       <section class="page">
         ${state.firebaseError ? `<div class="notice error-notice">${escapeHtml(state.firebaseError)}</div>` : ""}
+        ${renderInstallButton("page-install")}
         ${renderClosedNotice(settings)}
         ${renderCartAvailabilityNotice()}
         ${state.message}
-        ${state.view === "items" ? renderItems() : state.view === "checkout" ? renderCheckout(t) : state.view === "track" ? renderTrack() : state.view === "orders" ? renderCustomerOrdersArchive() : renderCategories()}
+        ${state.view === "items" ? renderItems() : state.view === "checkout" ? renderCheckout(t) : state.view === "track" ? renderTrack() : state.view === "orders" ? renderCustomerOrdersArchive() : state.view === "profile" ? renderCustomerProfile() : renderCategories()}
       </section>
       ${state.cart.length ? `<div class="cart-bar"><div class="cart-bar-inner"><button class="cart-button" data-action="checkout"><span class="cart-count">${state.cart.reduce((a,b)=>a+b.quantity,0)}</span><span>السلة</span><strong>${K.fmt(t.total)}</strong></button></div></div>` : ""}
       ${renderCustomerOrderDetailsModal()}
@@ -855,7 +905,7 @@
 
   function renderCustomerOrdersArchive() {
     const orders = customerOrders();
-    return `<div class="toolbar"><button class="ghost-btn" data-action="home">رجوع إلى المنيو</button><h2>طلباتك السابقة</h2></div>
+    return `<div class="toolbar"><button class="ghost-btn" data-action="home">رجوع إلى المنيو</button><h2>طلباتك السابقة</h2><button class="primary-btn" data-action="profile">ملفي الشخصي</button></div>
       <section class="customer-orders-archive">
         <div class="archive-head">
           <div><strong>أرشيف الطلبات</strong><p class="muted">يعرض الطلبات المحفوظة على هذا الجهاز والمرتبطة برقم هاتفك عند توفرها.</p></div>
@@ -882,6 +932,43 @@
             </div>
           </article>`;
         }).join("")}</div>` : `<div class="empty-orders"><strong>📭 لا توجد طلبات حالياً</strong><p>بعد إرسال أول طلب سيظهر هنا تلقائيًا.</p><button class="primary-btn" data-action="home">ابدأ الطلب الآن</button></div>`}
+      </section>`;
+  }
+
+  function renderCustomerProfile() {
+    const orderCount = customerOrders().length;
+    const lastOrder = customerOrders()[0];
+    return `<div class="toolbar"><button class="ghost-btn" data-action="home">رجوع إلى المنيو</button><h2>ملفي الشخصي</h2><button class="primary-btn" data-action="orders">طلباتك السابقة</button></div>
+      <section class="customer-profile-panel">
+        <div class="profile-hero-card">
+          <div class="profile-avatar">${escapeHtml((state.customer.name || "ز").trim().charAt(0) || "ز")}</div>
+          <div>
+            <strong>${escapeHtml(state.customer.name || "زبون كباب الديرة")}</strong>
+            <p>${escapeHtml(state.customer.phone || "أضف رقم هاتفك حتى تظهر طلباتك السابقة")}</p>
+          </div>
+        </div>
+        <div class="profile-stats">
+          <div><span>عدد الطلبات</span><strong>${orderCount}</strong></div>
+          <div><span>آخر طلب</span><strong>${lastOrder ? `#${escapeHtml(String(lastOrder.id || "").slice(0, 8))}` : "لا يوجد"}</strong></div>
+          <div><span>نوع الطلب الحالي</span><strong>${escapeHtml(orderTypeLabel(state.orderType))}</strong></div>
+        </div>
+        <div class="panel stack profile-form-card">
+          <h3>معلومات الزبون</h3>
+          <div class="form-grid">
+            <label>اسم الزبون<input data-customer="name" value="${escapeHtml(state.customer.name || "")}" placeholder="اكتب اسمك"></label>
+            <label>رقم الهاتف<input data-customer="phone" value="${escapeHtml(state.customer.phone || "")}" placeholder="07XXXXXXXXX"></label>
+          </div>
+          <label>العنوان<input data-customer="address" value="${escapeHtml(state.customer.address || "")}" placeholder="المنطقة، الشارع، أقرب نقطة دالة"></label>
+          <label>ملاحظات ثابتة<textarea data-customer="notes" placeholder="مثال: لا تدق الجرس، اتصل عند الوصول">${escapeHtml(state.customer.notes || "")}</textarea></label>
+          <div class="form-grid">
+            <label>رابط الموقع<input data-customer="mapsUrl" value="${escapeHtml(state.customer.mapsUrl || "")}" placeholder="Google Maps link"></label>
+            <label>الإحداثيات<input value="${escapeHtml([state.customer.lat, state.customer.lng].filter(Boolean).join(", "))}" readonly></label>
+          </div>
+          <div class="row-actions">
+            <button class="ghost-btn" data-action="geo">تحديد موقعي</button>
+            <button class="primary-btn" data-action="saveProfile">حفظ الملف الشخصي</button>
+          </div>
+        </div>
       </section>`;
   }
 
@@ -1273,6 +1360,19 @@
       render();
       return;
     }
+    if (el.dataset.action === "installApp") {
+      if (!deferredInstallPrompt) {
+        setMessage("إذا لم يظهر زر التثبيت، افتح قائمة المتصفح واختر: إضافة إلى الشاشة الرئيسية.", "notice");
+        return;
+      }
+      deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice.catch(() => null);
+      deferredInstallPrompt = null;
+      state.canInstallApp = false;
+      setMessage(choice?.outcome === "accepted" ? "تم بدء تثبيت التطبيق." : "يمكنك تثبيت التطبيق لاحقًا من المتصفح.", choice?.outcome === "accepted" ? "success-notice" : "notice");
+      render();
+      return;
+    }
     if (el.dataset.type) {
       state.orderType = el.dataset.type;
       if (state.selectedCategory && !activeCategories().some(category => category.id === state.selectedCategory)) {
@@ -1327,6 +1427,14 @@
     if (el.dataset.action === "reviewCart") { state.view = "checkout"; render(); }
     if (el.dataset.action === "removeUnavailableCart") { removeDisallowedCartItems(); }
     if (el.dataset.action === "orders") { subscribeCustomerOrders(); state.view = "orders"; render(); }
+    if (el.dataset.action === "profile") { subscribeCustomerOrders(); state.view = "profile"; render(); }
+    if (el.dataset.action === "saveProfile") {
+      save();
+      subscribeCustomerOrders();
+      setMessage("تم حفظ ملفك الشخصي بنجاح.", "success-notice");
+      state.view = "profile";
+      render();
+    }
     if (el.dataset.action === "refreshCustomerOrders") { subscribeCustomerOrders(); setMessage("تم تحديث أرشيف الطلبات.", "success-notice"); }
     if (el.dataset.action === "archiveDetails") { state.selectedCustomerOrderId = el.dataset.orderId || ""; render(); }
     if (el.dataset.action === "closeArchiveDetails") { state.selectedCustomerOrderId = ""; render(); }
@@ -1409,6 +1517,19 @@
       delete state.errors.general;
       save();
     }
+  });
+
+  window.addEventListener("beforeinstallprompt", event => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    state.canInstallApp = true;
+    render();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    state.canInstallApp = false;
+    setMessage("تم تثبيت تطبيق كباب الديرة بنجاح.", "success-notice");
   });
 
   subscribe();

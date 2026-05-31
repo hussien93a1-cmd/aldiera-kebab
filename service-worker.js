@@ -1,4 +1,4 @@
-const CACHE_NAME = "kabab-aldeera-v40";
+const CACHE_NAME = "kabab-aldeera-v45";
 const ASSETS = [
   "./",
   "./index.html",
@@ -9,8 +9,11 @@ const ASSETS = [
   "./admin.js",
   "./firebase-config.js",
   "./manifest.json",
-  "./icons/icon-192.svg",
-  "./icons/icon-512.svg"
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/apple-touch-icon.png",
+  "./icons/favicon-32.png",
+  "./icons/favicon-16.png"
 ];
 
 self.addEventListener("install", event => {
