@@ -994,6 +994,16 @@
         </div>
         <p class="muted">هذه الألوان تطبق على صفحة الزبون فقط، ولا تغير ألوان لوحة التحكم.</p>
       </div>
+      <div class="panel theme-settings-panel">
+        <h3>إعداد بطاقات الأصناف</h3>
+        <label>شكل بطاقة الصنف
+          <select id="setItemCardStyle">
+            <option value="image" ${!s.itemCardStyle || s.itemCardStyle === "image" ? "selected" : ""}>بطاقات بالصورة الحالية</option>
+            <option value="no_image_luxury" ${s.itemCardStyle === "no_image_luxury" ? "selected" : ""}>Premium بدون صور</option>
+          </select>
+        </label>
+        <p class="muted">خيار Premium بدون صور يخفي صور الأصناف من صفحة الزبون ويستخدم تصميمًا أحمر فاخرًا مع عناصر زخرفية فقط.</p>
+      </div>
       <div class="panel banner-settings">
         <h3>بانر أعلى صفحة الزبون</h3>
         <div class="form-grid"><label><input id="setAnnouncementEnabled" type="checkbox" ${s.announcementEnabled ? "checked" : ""}> تفعيل البانر</label><label>عنوان البانر<input id="setAnnouncementTitle" value="${esc(s.announcementTitle || "")}" placeholder="مثال: تهنئة بمناسبة العيد"></label></div>
@@ -1169,6 +1179,7 @@
       address: val("setAddress"),
       customerHeroText: val("setCustomerHeroText"),
       customerTheme: val("setCustomerTheme") || "orange",
+      itemCardStyle: val("setItemCardStyle") || "image",
       themeCustom: {
         primary: val("setThemePrimary") || "#38BDF8",
         secondary: val("setThemeSecondary") || "#0EA5E9",
@@ -1230,6 +1241,7 @@
       address: val("setAddress"),
       customerHeroText: val("setCustomerHeroText"),
       customerTheme: val("setCustomerTheme") || "orange",
+      itemCardStyle: val("setItemCardStyle") || "image",
       themeCustom: {
         primary: val("setThemePrimary") || "#38BDF8",
         secondary: val("setThemeSecondary") || "#0EA5E9",

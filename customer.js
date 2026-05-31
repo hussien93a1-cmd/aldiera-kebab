@@ -379,6 +379,10 @@
     return `customer-theme-${settings.customerTheme || "orange"}`;
   }
 
+  function itemCardStyleClass(settings = state.settings) {
+    return `item-card-style-${settings.itemCardStyle || "image"}`;
+  }
+
   function applyCustomerTheme(settings = state.settings) {
     const t = customerThemeTokens(settings);
     app.style.setProperty("--amber", t.secondary);
@@ -404,7 +408,7 @@
     const t = totals();
     const settings = state.settings;
     applyCustomerTheme(settings);
-    const themeClass = customerThemeClass(settings);
+    const themeClass = `${customerThemeClass(settings)} ${itemCardStyleClass(settings)}`;
     if (state.screen === "welcome") {
       app.className = `customer-shell intro-shell ${themeClass}`;
       app.innerHTML = WelcomeScreen(settings);
@@ -641,6 +645,10 @@
     return `<button class="reorder-btn" data-action="reorderLast">اطلب نفس الطلب مرة ثانية</button>`;
   }
 
+  function isPopularItem(item) {
+    return state.popularSales.some(row => row.id === item.id || row.itemId === item.id);
+  }
+
   function renderItems() {
     const category = state.categories.find(c => c.id === state.selectedCategory) || {};
     const items = activeItems(state.selectedCategory);
@@ -648,12 +656,15 @@
         <button class="ghost-btn" data-action="back">رجوع</button>
         <h2>${escapeHtml(category.name || "الأصناف")}</h2>
       </div>
-      <div class="item-list">${items.length ? items.map(item => {
+      <div class="item-list">${items.length ? items.map((item, index) => {
         const price = itemPrice(item);
         const off = K.percentOff(Number(item.oldPrice || 0), price);
         const orderable = isItemOrderable(item);
         const imageStyle = item.imageUrl ? `style="--item-image:url('${cssUrl(item.imageUrl)}')"` : "";
-        return item.isOffer ? `<article class="item-card offer-card deera-offer-card full-image-item-card ${orderable ? "" : "unavailable"}" ${imageStyle}>
+        const cardNumber = String(item.order || index + 1).padStart(2, "0");
+        const premiumBits = `<span class="item-card-number">${escapeHtml(cardNumber)}</span><span class="item-popular-badge">🔥 ${isPopularItem(item) ? "الأكثر طلباً" : "اختيار مميز"}</span><span class="item-deco-icon">♨</span><span class="item-curve-line" aria-hidden="true"></span>`;
+        return item.isOffer ? `<article class="item-card offer-card deera-offer-card full-image-item-card premium-no-image-item ${orderable ? "" : "unavailable"}" ${imageStyle}>
+          ${premiumBits}
           <div>
             <span class="offer-pill">🔥 خصم ${off}%</span>
             <h3>${escapeHtml(item.name)}</h3>
@@ -662,7 +673,8 @@
             <div class="offer-line"><span>السعر الجديد</span><strong>${K.fmt(price)}</strong></div>
           </div>
           <button class="warning-btn offer-btn" data-item="${item.id}" ${orderable ? "" : "disabled"}>${orderable ? "إضافة العرض إلى السلة" : "غير متوفر حاليًا"}</button>
-        </article>` : `<article class="item-card full-image-item-card ${orderable ? "" : "unavailable"}" ${imageStyle}>
+        </article>` : `<article class="item-card full-image-item-card premium-no-image-item ${orderable ? "" : "unavailable"}" ${imageStyle}>
+          ${premiumBits}
           <div class="item-main">
             <h3>${escapeHtml(item.name)}</h3>
             <p class="muted">${escapeHtml(item.description || "اختر الحجم أو الخيار المناسب")}</p>
@@ -672,7 +684,7 @@
             <strong class="price">${K.fmt(price)}</strong>
           </div>
           ${orderable ? "" : `<span class="unavailable-badge">غير متوفر حاليًا</span>`}
-          <button class="item-select-btn ${orderable ? "" : "disabled"}" data-item="${item.id}" ${orderable ? "" : "disabled"}>${orderable ? "اختيار" : "غير متوفر"}</button>
+          <button class="item-select-btn ${orderable ? "" : "disabled"}" data-item="${item.id}" ${orderable ? "" : "disabled"}>${orderable ? "➕ إضافة" : "غير متوفر"}</button>
         </article>`;
       }).join("") : `<div class="notice">لا توجد أصناف متاحة في هذا القسم حاليًا.</div>`}</div>`;
   }

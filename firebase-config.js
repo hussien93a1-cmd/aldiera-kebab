@@ -47,6 +47,7 @@ window.KABAB = (() => {
     address: "الحرية - شارع الدور",
     customerHeroText: "اختر القسم واطلب أشهى مشويات كباب الديرة",
     customerTheme: "orange",
+    itemCardStyle: "image",
     themeCustom: {
       primary: "#ea580c",
       secondary: "#f59e0b",
