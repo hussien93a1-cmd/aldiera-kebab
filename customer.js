@@ -313,21 +313,109 @@
     return String(value || "").replace(/['")\\]/g, "");
   }
 
+  function safeColor(value, fallback) {
+    const color = String(value || "").trim();
+    return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+  }
+
+  function customerThemeTokens(settings = state.settings) {
+    const presets = {
+      orange: {
+        primary: "#ea580c",
+        secondary: "#f59e0b",
+        light: "#fff7ed",
+        background: "#fffbeb",
+        text: "#1c1917",
+        muted: "#78716c",
+        accent: "#fed7aa",
+        hover: "#c2410c",
+        line: "#eadfd2",
+        card: "#ffffff"
+      },
+      sky: {
+        primary: "#38BDF8",
+        secondary: "#0EA5E9",
+        light: "#E0F7FF",
+        background: "#F8FCFF",
+        text: "#0F172A",
+        muted: "#475569",
+        accent: "#7DD3FC",
+        hover: "#0284C7",
+        line: "#BAE6FD",
+        card: "#FFFFFF"
+      },
+      dark: {
+        primary: "#38BDF8",
+        secondary: "#0EA5E9",
+        light: "#172033",
+        background: "#07111F",
+        text: "#F8FAFC",
+        muted: "#CBD5E1",
+        accent: "#7DD3FC",
+        hover: "#0284C7",
+        line: "#1E3A5F",
+        card: "#0F172A"
+      }
+    };
+    if (settings.customerTheme === "custom") {
+      const custom = settings.themeCustom || {};
+      return {
+        primary: safeColor(custom.primary, "#38BDF8"),
+        secondary: safeColor(custom.secondary, "#0EA5E9"),
+        light: safeColor(custom.light, "#E0F7FF"),
+        background: safeColor(custom.background, "#F8FCFF"),
+        text: safeColor(custom.text, "#0F172A"),
+        muted: "#475569",
+        accent: safeColor(custom.accent, "#7DD3FC"),
+        hover: safeColor(custom.hover, "#0284C7"),
+        line: safeColor(custom.accent, "#7DD3FC"),
+        card: "#FFFFFF"
+      };
+    }
+    return presets[settings.customerTheme] || presets.orange;
+  }
+
+  function customerThemeClass(settings = state.settings) {
+    return `customer-theme-${settings.customerTheme || "orange"}`;
+  }
+
+  function applyCustomerTheme(settings = state.settings) {
+    const t = customerThemeTokens(settings);
+    app.style.setProperty("--amber", t.secondary);
+    app.style.setProperty("--orange", t.primary);
+    app.style.setProperty("--red", t.hover);
+    app.style.setProperty("--ink", t.text);
+    app.style.setProperty("--muted", t.muted);
+    app.style.setProperty("--line", t.line);
+    app.style.setProperty("--paper", t.light);
+    app.style.setProperty("--white", t.card);
+    app.style.setProperty("--theme-bg", t.background);
+    app.style.setProperty("--theme-primary", t.primary);
+    app.style.setProperty("--theme-secondary", t.secondary);
+    app.style.setProperty("--theme-light", t.light);
+    app.style.setProperty("--theme-text", t.text);
+    app.style.setProperty("--theme-accent", t.accent);
+    app.style.setProperty("--theme-hover", t.hover);
+    document.body.style.backgroundColor = t.background;
+  }
+
   function render() {
     save();
     const t = totals();
     const settings = state.settings;
+    applyCustomerTheme(settings);
+    const themeClass = customerThemeClass(settings);
     if (state.screen === "welcome") {
-      app.className = "customer-shell intro-shell";
+      app.className = `customer-shell intro-shell ${themeClass}`;
       app.innerHTML = WelcomeScreen(settings);
       return;
     }
     if (state.screen === "orderType") {
-      app.className = "customer-shell intro-shell";
+      app.className = `customer-shell intro-shell ${themeClass}`;
       app.innerHTML = OrderTypeSelector(settings);
       return;
     }
-    app.className = "customer-shell";
+    app.className = `customer-shell ${themeClass}`;
     app.innerHTML = `
       <header class="customer-header">
         <div class="header-inner">

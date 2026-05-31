@@ -1924,6 +1924,112 @@ th { background: #fff7ed; font-weight: 900; color: #7c2d12; }
   filter: grayscale(.25);
 }
 
+/* Customer theme manager colors */
+.customer-shell {
+  background:
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--theme-accent, #fed7aa) 24%, transparent), transparent 30%),
+    linear-gradient(180deg, var(--theme-bg, #fffbeb), color-mix(in srgb, var(--theme-light, #fff7ed) 68%, #fff));
+}
+.customer-shell .customer-header {
+  background: linear-gradient(135deg, var(--theme-primary, #ea580c), var(--theme-secondary, #f59e0b));
+  border-bottom-color: color-mix(in srgb, var(--theme-accent, #fed7aa) 70%, transparent);
+}
+.customer-shell .brand .logo,
+.customer-shell .old-logo,
+.customer-shell .welcome-logo,
+.customer-shell .category-note-bar,
+.customer-shell .primary-btn,
+.customer-shell .start-order-btn,
+.customer-shell .cart-button,
+.customer-shell .item-select-btn,
+.customer-shell .warning-btn,
+.customer-shell .v2-floating-cart {
+  background: linear-gradient(135deg, var(--theme-primary, #ea580c), var(--theme-secondary, #f59e0b));
+  color: #fff;
+}
+.customer-shell .ghost-btn,
+.customer-shell .icon-btn,
+.customer-shell input,
+.customer-shell textarea,
+.customer-shell select,
+.customer-shell .panel,
+.customer-shell .drawer-panel,
+.customer-shell .announcement-inner,
+.customer-shell .track-panel,
+.customer-shell .customer-order-card,
+.customer-shell .empty-orders {
+  border-color: color-mix(in srgb, var(--theme-accent, #fed7aa) 58%, transparent);
+}
+.customer-shell .ghost-btn,
+.customer-shell .icon-btn,
+.customer-shell .option-row,
+.customer-shell .closed-notice,
+.customer-shell .delivery-route-card,
+.customer-shell .customer-order-meta span {
+  background: color-mix(in srgb, var(--theme-light, #fff7ed) 78%, #fff);
+  color: var(--theme-hover, #c2410c);
+}
+.customer-shell .price,
+.customer-shell .customer-order-total strong,
+.customer-shell .customer-order-detail-total strong,
+.customer-shell .toolbar h2,
+.customer-shell .section-title h2 {
+  color: var(--theme-primary, #ea580c);
+}
+.customer-shell .category-badge,
+.customer-shell .customer-status-badge.status-new,
+.customer-shell .offer-pill {
+  background: var(--theme-primary, #ea580c);
+}
+.customer-shell:not(.customer-v2-shell) .luxury-category-card {
+  border-color: color-mix(in srgb, var(--theme-accent, #fed7aa) 56%, transparent);
+}
+.customer-shell:not(.customer-v2-shell) .luxury-category-card:hover {
+  border-color: var(--theme-primary, #ea580c);
+  box-shadow: 0 24px 54px color-mix(in srgb, var(--theme-primary, #ea580c) 24%, transparent);
+}
+.customer-shell:not(.customer-v2-shell) .luxury-category-card .category-badge,
+.customer-shell:not(.customer-v2-shell) .full-image-item-card .item-select-btn {
+  background: linear-gradient(135deg, var(--theme-primary, #ea580c), var(--theme-secondary, #f59e0b));
+}
+.customer-shell:not(.customer-v2-shell) .full-image-item-card {
+  border-color: color-mix(in srgb, var(--theme-accent, #fed7aa) 58%, transparent);
+}
+.customer-shell:not(.customer-v2-shell) .full-image-item-card:hover {
+  border-color: var(--theme-primary, #ea580c);
+}
+.customer-shell.customer-theme-sky .customer-header,
+.customer-shell.customer-theme-sky .category-note-bar,
+.customer-shell.customer-theme-sky .primary-btn,
+.customer-shell.customer-theme-sky .cart-button,
+.customer-shell.customer-theme-sky .start-order-btn {
+  box-shadow: 0 18px 40px rgba(14, 165, 233, .2);
+}
+.customer-shell.customer-theme-sky:not(.customer-v2-shell) .luxury-category-card .category-content,
+.customer-shell.customer-theme-sky:not(.customer-v2-shell) .full-image-item-card .item-main,
+.customer-shell.customer-theme-sky:not(.customer-v2-shell) .full-image-item-card .item-price-block {
+  background: rgba(15, 23, 42, .42);
+  border-color: rgba(224, 247, 255, .28);
+}
+.customer-shell.customer-theme-sky .grid-bg {
+  background-image: radial-gradient(#7dd3fc .6px, transparent .6px);
+}
+.customer-shell.customer-theme-dark .panel,
+.customer-shell.customer-theme-dark .drawer-panel,
+.customer-shell.customer-theme-dark .announcement-inner,
+.customer-shell.customer-theme-dark .track-panel,
+.customer-shell.customer-theme-dark .customer-order-card,
+.customer-shell.customer-theme-dark .empty-orders {
+  background: rgba(15, 23, 42, .94);
+  color: var(--theme-text, #f8fafc);
+}
+.customer-shell.customer-theme-dark input,
+.customer-shell.customer-theme-dark textarea,
+.customer-shell.customer-theme-dark select {
+  background: #111827;
+  color: #f8fafc;
+}
+
 @media (max-width: 820px) {
   .customer-shell:not(.customer-v2-shell) .luxury-category-card,
   .customer-shell:not(.customer-v2-shell) .full-image-item-card {

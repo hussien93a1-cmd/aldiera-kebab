@@ -46,6 +46,16 @@ window.KABAB = (() => {
     whatsappNumber: "07838468817",
     address: "الحرية - شارع الدور",
     customerHeroText: "اختر القسم واطلب أشهى مشويات كباب الديرة",
+    customerTheme: "orange",
+    themeCustom: {
+      primary: "#ea580c",
+      secondary: "#f59e0b",
+      light: "#fff7ed",
+      background: "#fffbeb",
+      text: "#1c1917",
+      accent: "#fed7aa",
+      hover: "#c2410c"
+    },
     announcementEnabled: false,
     announcementTitle: "تهنئة من كباب الديرة",
     announcementText: "",

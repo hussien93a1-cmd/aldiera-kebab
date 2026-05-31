@@ -973,6 +973,27 @@
       <div class="form-grid"><label>الهاتف 1<input id="setPhone1" value="${esc((s.phones || [])[0] || "")}"></label><label>الهاتف 2<input id="setPhone2" value="${esc((s.phones || [])[1] || "")}"></label><label>واتساب الطلبات<input id="setWhatsapp" value="${esc(s.whatsappNumber || "07838468817")}" placeholder="07838468817 أو +9647838468817"></label></div>
       <label>العنوان<input id="setAddress" value="${esc(s.address || "")}"></label>
       <label>شريط أعلى الأقسام<input id="setCustomerHeroText" value="${esc(s.customerHeroText || "اختر القسم واطلب أشهى مشويات كباب الديرة")}"></label>
+      <div class="panel theme-settings-panel">
+        <h3>إعدادات الثيم / Theme Settings</h3>
+        <label>اختيار الثيم
+          <select id="setCustomerTheme">
+            <option value="orange" ${!s.customerTheme || s.customerTheme === "orange" ? "selected" : ""}>Orange Classic</option>
+            <option value="sky" ${s.customerTheme === "sky" ? "selected" : ""}>Sky Blue + White</option>
+            <option value="dark" ${s.customerTheme === "dark" ? "selected" : ""}>Dark Mode</option>
+            <option value="custom" ${s.customerTheme === "custom" ? "selected" : ""}>Custom Theme</option>
+          </select>
+        </label>
+        <div class="form-grid">
+          <label>Primary<input id="setThemePrimary" type="color" value="${esc(s.themeCustom?.primary || "#38BDF8")}"></label>
+          <label>Secondary<input id="setThemeSecondary" type="color" value="${esc(s.themeCustom?.secondary || "#0EA5E9")}"></label>
+          <label>Light<input id="setThemeLight" type="color" value="${esc(s.themeCustom?.light || "#E0F7FF")}"></label>
+          <label>Soft Background<input id="setThemeBackground" type="color" value="${esc(s.themeCustom?.background || "#F8FCFF")}"></label>
+          <label>Text<input id="setThemeText" type="color" value="${esc(s.themeCustom?.text || "#0F172A")}"></label>
+          <label>Accent<input id="setThemeAccent" type="color" value="${esc(s.themeCustom?.accent || "#7DD3FC")}"></label>
+          <label>Hover<input id="setThemeHover" type="color" value="${esc(s.themeCustom?.hover || "#0284C7")}"></label>
+        </div>
+        <p class="muted">هذه الألوان تطبق على صفحة الزبون فقط، ولا تغير ألوان لوحة التحكم.</p>
+      </div>
       <div class="panel banner-settings">
         <h3>بانر أعلى صفحة الزبون</h3>
         <div class="form-grid"><label><input id="setAnnouncementEnabled" type="checkbox" ${s.announcementEnabled ? "checked" : ""}> تفعيل البانر</label><label>عنوان البانر<input id="setAnnouncementTitle" value="${esc(s.announcementTitle || "")}" placeholder="مثال: تهنئة بمناسبة العيد"></label></div>
@@ -1147,6 +1168,16 @@
       whatsappNumber: val("setWhatsapp"),
       address: val("setAddress"),
       customerHeroText: val("setCustomerHeroText"),
+      customerTheme: val("setCustomerTheme") || "orange",
+      themeCustom: {
+        primary: val("setThemePrimary") || "#38BDF8",
+        secondary: val("setThemeSecondary") || "#0EA5E9",
+        light: val("setThemeLight") || "#E0F7FF",
+        background: val("setThemeBackground") || "#F8FCFF",
+        text: val("setThemeText") || "#0F172A",
+        accent: val("setThemeAccent") || "#7DD3FC",
+        hover: val("setThemeHover") || "#0284C7"
+      },
       announcementEnabled: checked("setAnnouncementEnabled"),
       announcementTitle: val("setAnnouncementTitle"),
       announcementText: val("setAnnouncementText"),
@@ -1198,6 +1229,16 @@
       whatsappNumber: val("setWhatsapp"),
       address: val("setAddress"),
       customerHeroText: val("setCustomerHeroText"),
+      customerTheme: val("setCustomerTheme") || "orange",
+      themeCustom: {
+        primary: val("setThemePrimary") || "#38BDF8",
+        secondary: val("setThemeSecondary") || "#0EA5E9",
+        light: val("setThemeLight") || "#E0F7FF",
+        background: val("setThemeBackground") || "#F8FCFF",
+        text: val("setThemeText") || "#0F172A",
+        accent: val("setThemeAccent") || "#7DD3FC",
+        hover: val("setThemeHover") || "#0284C7"
+      },
       announcementEnabled: checked("setAnnouncementEnabled"),
       announcementTitle: val("setAnnouncementTitle"),
       announcementText: val("setAnnouncementText"),
